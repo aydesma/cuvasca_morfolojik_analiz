@@ -1,3 +1,3 @@
 # Çuvaşça İyelik Eki Çekimleyici
 
-https://cuvasca-morfolojik-analiz.onrender.com/
+Site: https://cuvasca-morfolojik-analiz.onrender.com/
