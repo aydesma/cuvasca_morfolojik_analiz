@@ -47,8 +47,9 @@ _COGUL_EKLERI = ("сем", "сен")          # eski hallerde сем -> сен
 _KIRIL = re.compile(r"[а-яёӑӗӳҫ]")
 _GECERLI = re.compile(r"^[а-яёӑӗӳҫ]+$")
 _UNLULER = ChuvashPhonology.VOWELS | frozenset("ёюя")
-# Kopyala-yapıştırla gelen benzer harfler: ӱ (U+04F1) ve с + birleşik çengel
-_BENZER_HARFLER = (("с̧", "ҫ"), ("С̧", "Ҫ"), ("ӱ", "ӳ"), ("Ӱ", "Ӳ"))
+# Kopyala-yapıştırla gelen benzer harfler: ӱ (U+04F1), с + birleşik çengel,
+# Unicode tireleri (U+2010, U+2011)
+_BENZER_HARFLER = (("с̧", "ҫ"), ("С̧", "Ҫ"), ("ӱ", "ӳ"), ("Ӱ", "Ӳ"), ("‐", "-"), ("‑", "-"))
 
 
 class AnalizHatasi(ValueError):
@@ -75,11 +76,12 @@ def _kok_dogrula(girdi):
     if not _KIRIL.search(girdi.lower()):
         raise AnalizHatasi("Kelimeyi Kiril harfleriyle yazın (örn: лаша).")
     kok = ChuvashPhonology.normalize(girdi)
-    if "-" in kok:
-        raise AnalizHatasi("Tireli bileşik kelimeler desteklenmiyor; son bileşeni tek başına girin.")
-    if not _GECERLI.match(kok):
+    kelimeler = kok.split("-")                                   # tireli bileşik: ача-пӑча
+    if not all(kelimeler):
+        raise AnalizHatasi("Tire iki kelimenin arasında olmalı (örn: ача-пӑча).")
+    if not all(_GECERLI.match(k) for k in kelimeler):
         raise AnalizHatasi("Kelimede Çuvaşça olmayan bir karakter var.")
-    if not any(h in _UNLULER for h in kok):
+    if not all(any(h in _UNLULER for h in k) for k in kelimeler):
         raise AnalizHatasi("Kelimede ünlü yok; geçerli bir Çuvaşça kök girin.")
     return kok
 
@@ -127,7 +129,7 @@ def _ayristir(kok, sahis, slot, cogul, hal, son):
     return parcalar
 
 
-def _tablo(kok, slot, hal, cogul):
+def _tablo(kok, slot, hal, cogul, on=""):
     try:
         _FST.generate_variants(kok, slot, True)
         sayilabilir = True
@@ -138,8 +140,8 @@ def _tablo(kok, slot, hal, cogul):
         satirlar.append({
             "hal": kod,
             "ad": ad,
-            "tekil": _FST.generate_variants(kok, slot, False, kod),
-            "cogul": _FST.generate_variants(kok, slot, True, kod) if sayilabilir else None,
+            "tekil": [on + b for b in _FST.generate_variants(kok, slot, False, kod)],
+            "cogul": [on + b for b in _FST.generate_variants(kok, slot, True, kod)] if sayilabilir else None,
             "secili_tekil": kod == hal and not cogul,
             "secili_cogul": kod == hal and cogul,
         })
@@ -151,7 +153,8 @@ def analyze(root, person_code=None, is_plural=False, case="nominative"):
     İsim çekimi yapar ve ek zincirini çıkarır.
 
     Args:
-        root: kök kelime (Kiril; Latin ă ĕ ç ÿ da kabul edilir)
+        root: kök kelime (Kiril; Latin ă ĕ ç ÿ da kabul edilir). Tireli
+              bileşikte (ача-пӑча) ekler son kelimeye göre gelir.
         person_code: '1sg', '2sg', '3sg', '1pl', '2pl', '3pl' ya da boş (iyeliksiz)
         is_plural: çoğul mu
         case: 'nominative', 'genitive', 'dative', 'locative', 'ablative',
@@ -168,19 +171,23 @@ def analyze(root, person_code=None, is_plural=False, case="nominative"):
     if case not in _HAL_ADI:
         raise AnalizHatasi("Geçersiz hal seçimi.")
     slot = _SAHIS_MOTOR[person_code] if person_code else None
+    # Bileşikte ekler son kelimeye göre gelir; öndeki kısım değişmeden başa eklenir.
+    kelime = kok.rsplit("-", 1)[-1]
+    on = kok[:-len(kelime)]
 
-    tablo, sayilabilir = _tablo(kok, slot, case, is_plural)
+    tablo, sayilabilir = _tablo(kelime, slot, case, is_plural, on)
     if is_plural and not sayilabilir:
         raise AnalizHatasi(f"«{kok}» sayılamayan bir isim; çoğul eki almaz. "
                            "Çoğul seçimini kaldırıp yeniden deneyin.")
 
-    bicimler = _FST.generate_variants(kok, slot, is_plural, case)
-    son = bicimler[0]
+    bicimler = _FST.generate_variants(kelime, slot, is_plural, case)
+    parcalar = _ayristir(kelime, person_code, slot, is_plural, case, bicimler[0])
+    parcalar[0]["text"] = on + parcalar[0]["text"]
     return {
         "kok": kok,
-        "parcalar": _ayristir(kok, person_code, slot, is_plural, case, son),
-        "son": son,
-        "digerleri": bicimler[1:],
+        "parcalar": parcalar,
+        "son": on + bicimler[0],
+        "digerleri": [on + b for b in bicimler[1:]],
         "tablo": tablo,
         "sayilabilir": sayilabilir,
     }

@@ -5,7 +5,8 @@ Site: https://cuvasca-morfolojik-analiz.vercel.app/
 Çuvaşça isim çekimi: **kök + iyelik + çoğul + hal**. Girilen kök için seçilen
 iyelik (yok, 1./2./3. tekil, 1./2./3. çoğul), sayı ve 8 halden biri üretilir;
 ek zinciri, varsa alternatif biçimler ve seçili iyelik için 8 hal × tekil/çoğul
-tablosu gösterilir.
+tablosu gösterilir. Tireli bileşiklerde (ача-пӑча) ekler son kelimeye göre
+gelir, öndeki kısım değişmez.
 
 Haller: yalın, ilgi, yönelme, bulunma, çıkma (eski); vasıta, yokluk, sebep (yeni).
 

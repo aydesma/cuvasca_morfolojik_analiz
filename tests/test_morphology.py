@@ -130,6 +130,52 @@ class Tablo(unittest.TestCase):
         self.assertEqual(s["son"], "сӗтӗн")
 
 
+class TireliBilesik(unittest.TestCase):
+    """Tireli bileşikte ekler son kelimeye göre gelir; öndeki kısım değişmez."""
+
+    def test_tum_kombinasyonlar_son_kelimeyle_ayni(self):
+        for kok in ("ача-пӑча", "юрӑ-сӑвӑ", "кукка-атте", "апат-ҫимӗҫ", "пӗр-пӗр-ача", "лаша-утӑ"):
+            on, kelime = kok.rsplit("-", 1)
+            on += "-"
+            for sahis in SAHIS_KODLARI:
+                for cogul in (False, True):
+                    for hal in HAL_KODLARI:
+                        with self.subTest(kok=kok, sahis=sahis, cogul=cogul, hal=hal):
+                            try:
+                                tek = analyze(kelime, sahis, cogul, hal)
+                            except AnalizHatasi:
+                                with self.assertRaises(AnalizHatasi):
+                                    analyze(kok, sahis, cogul, hal)
+                                continue
+                            s = analyze(kok, sahis, cogul, hal)
+                            self.assertEqual(s["kok"], kok)
+                            self.assertEqual(s["son"], on + tek["son"])
+                            self.assertEqual(s["digerleri"], [on + b for b in tek["digerleri"]])
+                            self.assertEqual("".join(p["text"] for p in s["parcalar"]), s["son"])
+                            self.assertEqual([p["label"] for p in s["parcalar"]],
+                                             [p["label"] for p in tek["parcalar"]])
+                            for r, t in zip(s["tablo"], tek["tablo"]):
+                                self.assertEqual(r["tekil"], [on + b for b in t["tekil"]])
+                                self.assertEqual(r["cogul"], t["cogul"] and [on + b for b in t["cogul"]])
+
+    def test_ornekler(self):
+        self.assertEqual(zincir(analyze("ача-пӑча", "3sg", True, "dative")),
+                         [("ача-пӑч", "Kök"), ("и", "3.T.Ş"), ("сен", "Çoğul"), ("е", "Yönelme")])
+        self.assertEqual(zincir(analyze("кукка-атте", "3sg", False, "dative")),
+                         [("кукка-ашшӗ", "Kök + 3.T.Ş"), ("не", "Yönelme")])
+        self.assertEqual(analyze("юрӑ-сӑвӑ", "2sg")["son"], "юрӑ-сӑвву")
+
+    def test_sayilamazlik_son_kelimeye_bakar(self):
+        with self.assertRaisesRegex(AnalizHatasi, "«лаша-утӑ» sayılamayan"):
+            analyze("лаша-утӑ", None, True)
+        self.assertEqual(analyze("сӗт-ҫу", None, True)["son"], "сӗт-ҫусем")
+
+    def test_unicode_tire_ve_latin_harf(self):
+        self.assertEqual(analyze("ача‑пӑча", "1sg")["son"], "ача-пӑчам")
+        self.assertEqual(analyze("ача‐пӑча")["kok"], "ача-пӑча")
+        self.assertEqual(analyze("Ача-Пӑча", "1sg")["son"], "ача-пӑчам")
+
+
 class GirdiDenetimi(unittest.TestCase):
     def hata(self, *args):
         with self.assertRaises(AnalizHatasi) as cm:
@@ -149,9 +195,12 @@ class GirdiDenetimi(unittest.TestCase):
         for kelime in ("ь", "ъ", "кщк"):
             with self.subTest(kelime=kelime):
                 self.assertIn("ünlü yok", self.hata(kelime))
-        for kelime in ("лаша-", "-а", "юрӑ-сӑвӑ", "ача--пӑча"):
+        for kelime in ("лаша-", "-а", "ача--пӑча"):
             with self.subTest(kelime=kelime):
-                self.assertIn("Tireli", self.hata(kelime))
+                self.assertIn("Tire iki kelimenin", self.hata(kelime))
+        self.assertIn("Çuvaşça olmayan", self.hata("ача - пӑча"))
+        self.assertIn("Çuvaşça olmayan", self.hata("ача-1"))
+        self.assertIn("ünlü yok", self.hata("кщк-лаша"))
 
     def test_ayrisik_ve_benzer_harfler_kabul_edilir(self):
         import unicodedata

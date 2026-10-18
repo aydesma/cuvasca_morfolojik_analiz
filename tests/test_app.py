@@ -47,6 +47,13 @@ class Uygulama(unittest.TestCase):
         html = self.post(root="Лаша", sahis="3sg", plural="", hal="dative")
         self.assertIn('data-root="лаша" data-sahis="3sg"', html)
 
+    def test_tireli_bilesik_cekilir(self):
+        html = self.post(root="Ача-Пӑча", sahis="3sg", plural="on", hal="dative")
+        self.assertIn("Analiz Sonucu", html)
+        self.assertIn("ача-пӑчисене", html)
+        self.assertIn('data-root="ача-пӑча" data-sahis="3sg"', html)
+        self.assertNotIn('role="alert"', html)
+
     def test_alternatif_bicim_gosterilir(self):
         html = self.post(root="сӗтел", sahis="", plural="", hal="locative")
         self.assertIn("сӗтелре", html)
