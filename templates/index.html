@@ -29,6 +29,11 @@
                 }
             }
         }
+
+        // Tema, sayfa çizilmeden önce uygulanır (açılışta beyaz parlama olmasın)
+        if (localStorage.getItem('theme') === 'dark' || (!('theme' in localStorage) && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
+            document.documentElement.classList.add('dark');
+        }
     </script>
 
     <style>
@@ -78,7 +83,7 @@
             <div class="h-8 w-1 bg-red-600 dark:bg-darkprimary rounded-full"></div>
             <h1 class="text-2xl font-bold tracking-tight">Çuvaşça Morfolojik Analiz</h1>
         </div>
-        <button id="theme-toggle"
+        <button id="theme-toggle" type="button" aria-label="Temayı değiştir"
             class="p-2 rounded-full bg-gray-200 dark:bg-zinc-800 text-gray-600 dark:text-yellow-400 hover:ring-2 ring-red-400 dark:ring-red-400 transition focus:outline-none">
             <svg id="sun-icon" class="w-6 h-6 hidden" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
@@ -100,7 +105,7 @@
 
             <div>
                 <div class="flex justify-between items-end mb-2">
-                    <label class="block text-sm font-semibold text-gray-700 dark:text-gray-300">Kök Kelime</label>
+                    <label for="rootInput" class="block text-sm font-semibold text-gray-700 dark:text-gray-300">Kök Kelime</label>
                     <button type="button" onclick="fillRandom()"
                         class="text-xs text-red-600 dark:text-accent hover:underline font-medium flex items-center gap-1">
                         <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -111,24 +116,28 @@
                         Örnek Getir
                     </button>
                 </div>
-                <input type="text" id="rootInput" name="root" required placeholder="örn: анне"
-                    value="{{ root if root else '' }}"
+                <input type="text" id="rootInput" name="root" required maxlength="40" autocomplete="off"
+                    placeholder="örn: анне" value="{{ root if root else '' }}"
                     class="input-field w-full p-2.5 border border-gray-200 rounded-lg bg-gray-50 focus:bg-white dark:focus:bg-zinc-900 focus:ring-2 focus:ring-red-500 dark:focus:ring-red-500 focus:outline-none transition text-base">
+                <div class="flex flex-wrap items-center gap-2 mt-2">
+                    <span class="text-xs text-gray-400 dark:text-gray-500">Çuvaş harfleri:</span>
+                    {% for harf in ['ӑ', 'ӗ', 'ӳ', 'ҫ'] %}
+                    <button type="button" onclick="addChar('{{ harf }}')" aria-label="{{ harf }} harfini ekle"
+                        class="kb-key w-9 h-9 rounded-md border border-gray-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 font-mono text-base text-gray-700 dark:text-gray-200 hover:border-red-300 dark:hover:border-red-800">{{ harf }}</button>
+                    {% endfor %}
+                </div>
             </div>
 
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div>
-                    <label class="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">Şahıs</label>
+                    <label for="sahisSelect" class="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">İyelik</label>
                     <div class="relative">
-                        <select name="sahis"
+                        <select name="sahis" id="sahisSelect"
                             class="input-field w-full p-2.5 border border-gray-200 rounded-lg bg-white cursor-pointer focus:ring-2 focus:ring-red-500 dark:focus:ring-red-500 outline-none appearance-none font-medium text-base h-11">
-                            <option value="1sg" {% if not selected_sahis or selected_sahis=='1sg' %}selected{% endif %}>
-                                1. Tekil şahıs (ben)</option>
-                            <option value="2sg" {% if selected_sahis=='2sg' %}selected{% endif %}>2. Tekil şahıs (sen)</option>
-                            <option value="3sg" {% if selected_sahis=='3sg' %}selected{% endif %}>3. Tekil şahıs (o)</option>
-                            <option value="1pl" {% if selected_sahis=='1pl' %}selected{% endif %}>1. Çoğul şahıs (biz)</option>
-                            <option value="2pl" {% if selected_sahis=='2pl' %}selected{% endif %}>2. Çoğul şahıs (siz)</option>
-                            <option value="3pl" {% if selected_sahis=='3pl' %}selected{% endif %}>3. Çoğul şahıs (onlar)</option>
+                            <option value="" {% if not selected_sahis %}selected{% endif %}>Yok (iyeliksiz)</option>
+                            {% for kod, _, _, ad in sahislar %}
+                            <option value="{{ kod }}" {% if selected_sahis == kod %}selected{% endif %}>{{ ad }}</option>
+                            {% endfor %}
                         </select>
                         <div
                             class="pointer-events-none absolute inset-y-0 right-0 flex items-center px-3 text-gray-500">
@@ -141,9 +150,9 @@
                 </div>
 
                 <div>
-                    <label class="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">Sayı</label>
+                    <label for="pluralBtn" class="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">Sayı</label>
                     <input type="hidden" id="pluralInput" name="plural" value="{{ 'on' if selected_plural else '' }}">
-                    <button type="button" id="pluralBtn" onclick="togglePlural()"
+                    <button type="button" id="pluralBtn" onclick="togglePlural()" aria-pressed="{{ 'true' if selected_plural else 'false' }}"
                         class="w-full p-2.5 h-11 rounded-lg border transition-all duration-200 flex items-center justify-between group {{ 'bg-red-50 border-red-200 text-red-700 dark:bg-red-900/20 dark:border-red-800 dark:text-red-300' if selected_plural else 'bg-white border-gray-200 text-gray-500 hover:border-red-300 hover:text-red-600 dark:bg-darkcard dark:border-zinc-700 dark:text-gray-400' }}">
                         <span class="font-medium text-base">Çoğul</span>
                         <div
@@ -156,6 +165,25 @@
                         </div>
                     </button>
                 </div>
+
+                <div>
+                    <label for="halSelect" class="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">Hal</label>
+                    <div class="relative">
+                        <select name="hal" id="halSelect"
+                            class="input-field w-full p-2.5 border border-gray-200 rounded-lg bg-white cursor-pointer focus:ring-2 focus:ring-red-500 dark:focus:ring-red-500 outline-none appearance-none font-medium text-base h-11">
+                            {% for kod, ad in haller %}
+                            <option value="{{ kod }}" {% if selected_hal == kod %}selected{% endif %}>{{ ad }}</option>
+                            {% endfor %}
+                        </select>
+                        <div
+                            class="pointer-events-none absolute inset-y-0 right-0 flex items-center px-3 text-gray-500">
+                            <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                    d="M19 9l-7 7-7-7"></path>
+                            </svg>
+                        </div>
+                    </div>
+                </div>
             </div>
 
             <button type="submit"
@@ -164,43 +192,35 @@
             </button>
         </form>
 
-        {% if result %}
+        {% if error %}
+        <div role="alert"
+            class="mt-6 rounded-xl border border-red-200 bg-red-50 text-red-700 dark:border-red-900 dark:bg-red-900/20 dark:text-red-300 px-4 py-3 text-sm font-medium">
+            {{ error }}
+        </div>
+        {% endif %}
+
+        {% if analiz %}
         <div class="mt-10 border-t border-gray-100 dark:border-zinc-800 pt-8 animate-fade-in">
             <h2 class="text-xl font-semibold text-gray-800 dark:text-gray-200 mb-6 text-center">
                 Analiz Sonucu
             </h2>
 
-            <div class="flex flex-wrap justify-center items-center gap-3 mb-8">
-                {% for part in result %}
+            <div class="flex flex-wrap justify-center items-start gap-3 mb-8">
+                {% for part in analiz.parcalar %}
                 <div class="flex flex-col items-center group">
                     <div class="mb-1">
-                        <span class="code-normal text-red-600 dark:text-accent text-base">
-                            {% if part.code == '1sg' %}
-                                1.T.Ş
-                            {% elif part.code == '2sg' %}
-                                2.T.Ş
-                            {% elif part.code == '3sg' %}
-                                3.T.Ş
-                            {% elif part.code == '1pl' %}
-                                1.Ç.Ş
-                            {% elif part.code == '2pl' %}
-                                2.Ç.Ş
-                            {% elif part.code == '3pl' %}
-                                3.Ç.Ş
-                            {% elif part.code == 'PL' %}
-                                Çoğul
-                            {% else %}
-                                {{ part.code }}
-                            {% endif %}
-                        </span>
+                        <span class="code-normal text-red-600 dark:text-accent text-base">{{ part.label }}</span>
                     </div>
                     <div
                         class="result-box bg-gray-50 border border-gray-200 text-gray-800 px-5 py-2 rounded-lg font-mono text-lg shadow-sm transition">
                         {{ part.text }}
                     </div>
+                    {% if loop.first and part.text != analiz.kok %}
+                    <span class="mt-1 text-xs text-gray-400 dark:text-gray-500 font-mono">kök: {{ analiz.kok }}</span>
+                    {% endif %}
                 </div>
                 {% if not loop.last %}
-                <span class="text-gray-300 dark:text-gray-600 text-2xl font-light mt-6">+</span>
+                <span class="text-gray-300 dark:text-gray-600 text-2xl font-light mt-7">+</span>
                 {% endif %}
                 {% endfor %}
             </div>
@@ -209,12 +229,18 @@
                 class="relative flex flex-col justify-center items-center bg-green-50 dark:bg-zinc-900 rounded-xl p-6 border border-green-200 dark:border-green-900 transition-colors">
                 <p class="text-base font-bold text-green-600 dark:text-green-400 mb-2 uppercase tracking-wider">
                     Oluşturulan Kelime</p>
-                <div class="w-full text-center">
+                <div class="w-full text-center px-10">
                     <p id="finalWord"
-                        class="text-2xl md:text-4xl font-bold text-gray-900 dark:text-white tracking-tight">{{
-                        final_word }}</p>
+                        class="text-2xl md:text-4xl font-bold text-gray-900 dark:text-white tracking-tight break-words">{{
+                        analiz.son }}</p>
+                    {% if analiz.digerleri %}
+                    <p class="mt-2 text-sm text-gray-500 dark:text-gray-400">
+                        Diğer {{ 'biçimler' if analiz.digerleri|length > 1 else 'biçim' }}:
+                        <span class="font-semibold text-gray-700 dark:text-gray-200">{{ analiz.digerleri|join(', ') }}</span>
+                    </p>
+                    {% endif %}
                 </div>
-                <button onclick="copyResult()"
+                <button type="button" onclick="copyResult()" aria-label="Kopyala"
                     class="absolute right-4 md:right-6 p-2 text-gray-400 hover:text-green-600 dark:hover:text-green-400 transition rounded-full hover:bg-green-100 dark:hover:bg-zinc-800"
                     title="Kopyala">
                     <svg id="copyIcon" class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -228,6 +254,50 @@
                     </svg>
                 </button>
             </div>
+
+            {% set ns = namespace(iyelik='iyeliksiz') %}
+            {% for kod, _, _, ad in sahislar %}{% if kod == selected_sahis %}{% set ns.iyelik = ad %}{% endif %}{% endfor %}
+            <div class="mt-8">
+                <div class="flex flex-wrap items-baseline justify-between gap-2 mb-3">
+                    <h3 class="text-lg font-semibold text-gray-800 dark:text-gray-200">Tüm Haller</h3>
+                    <span class="text-sm text-gray-500 dark:text-gray-400">{{ analiz.kok }} · {{ ns.iyelik }}</span>
+                </div>
+                <div class="overflow-x-auto rounded-xl border border-gray-200 dark:border-zinc-800">
+                    <table class="min-w-full text-sm">
+                        <thead class="bg-gray-50 dark:bg-zinc-900 text-gray-500 dark:text-gray-400">
+                            <tr>
+                                <th scope="col" class="text-left font-semibold px-2 sm:px-3 py-2">Hal</th>
+                                <th scope="col" class="text-left font-semibold px-2 sm:px-3 py-2">Tekil</th>
+                                <th scope="col" class="text-left font-semibold px-2 sm:px-3 py-2">Çoğul</th>
+                            </tr>
+                        </thead>
+                        <tbody id="paradigma" class="divide-y divide-gray-100 dark:divide-zinc-800">
+                            {% for satir in analiz.tablo %}
+                            <tr>
+                                <th scope="row" class="text-left font-medium text-gray-600 dark:text-gray-300 px-2 sm:px-3 py-2 align-top">{{ satir.ad }}</th>
+                                {% for cogul, bicimler, secili in [(False, satir.tekil, satir.secili_tekil), (True, satir.cogul, satir.secili_cogul)] %}
+                                <td class="p-0 align-top">
+                                    {% if bicimler %}
+                                    <button type="button" data-hal="{{ satir.hal }}" data-cogul="{{ '1' if cogul else '0' }}"
+                                        {% if secili %}aria-current="true"{% endif %}
+                                        class="w-full text-left px-2 sm:px-3 py-2 font-mono transition {{ 'bg-red-50 text-red-700 font-bold dark:bg-red-900/20 dark:text-red-300' if secili else 'text-gray-800 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-zinc-800' }}">
+                                        {%- for b in bicimler %}<span class="whitespace-nowrap">{{ b }}</span>{% if not loop.last %} / {% endif %}{% endfor -%}
+                                    </button>
+                                    {% else %}
+                                    <span class="block px-2 sm:px-3 py-2 text-gray-400 dark:text-gray-600" title="Sayılamayan isim">—</span>
+                                    {% endif %}
+                                </td>
+                                {% endfor %}
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                {% if not analiz.sayilabilir %}
+                <p class="mt-2 text-xs text-gray-500 dark:text-gray-400">Sayılamayan isim: çoğul eki almaz.</p>
+                {% endif %}
+                <p class="mt-2 text-xs text-gray-400 dark:text-gray-500">Bir biçime dokununca o çekim analiz edilir.</p>
+            </div>
         </div>
         {% endif %}
     </div>
@@ -235,7 +305,7 @@
     <div class="w-full max-w-3xl" id="history-container" style="display:none;">
         <div class="flex items-center justify-between mb-4 px-2">
             <h3 class="text-lg font-bold text-gray-700 dark:text-gray-300">Geçmiş Aramalar</h3>
-            <button onclick="clearHistory()" class="text-xs text-red-500 hover:text-red-700 underline">Geçmişi
+            <button type="button" onclick="clearHistory()" class="text-xs text-red-500 hover:text-red-700 underline">Geçmişi
                 Temizle</button>
         </div>
         <div class="grid gap-3" id="history-list">
@@ -253,37 +323,26 @@
         const htmlElement = document.documentElement;
 
         // Tema Yönetimi
-        if (localStorage.getItem('theme') === 'dark' || (!('theme' in localStorage) && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
-            htmlElement.classList.add('dark');
-            sunIcon.classList.remove('hidden');
-            moonIcon.classList.add('hidden');
-        } else {
-            htmlElement.classList.remove('dark');
-            sunIcon.classList.add('hidden');
-            moonIcon.classList.remove('hidden');
+        function syncThemeIcons() {
+            const dark = htmlElement.classList.contains('dark');
+            sunIcon.classList.toggle('hidden', !dark);
+            moonIcon.classList.toggle('hidden', dark);
         }
+        syncThemeIcons();
 
         themeToggle.addEventListener('click', () => {
             htmlElement.classList.toggle('dark');
-            if (htmlElement.classList.contains('dark')) {
-                localStorage.setItem('theme', 'dark');
-                sunIcon.classList.remove('hidden');
-                moonIcon.classList.add('hidden');
-            } else {
-                localStorage.setItem('theme', 'light');
-                sunIcon.classList.add('hidden');
-                moonIcon.classList.remove('hidden');
-            }
+            localStorage.setItem('theme', htmlElement.classList.contains('dark') ? 'dark' : 'light');
+            syncThemeIcons();
         });
 
         function addChar(char) {
             const input = document.getElementById('rootInput');
-            if (input.value.length === 0) {
-                input.value += char.toUpperCase();
-            } else {
-                input.value += char;
-            }
+            const start = input.selectionStart ?? input.value.length;
+            const end = input.selectionEnd ?? input.value.length;
+            input.value = input.value.slice(0, start) + char + input.value.slice(end);
             input.focus();
+            input.setSelectionRange(start + char.length, start + char.length);
         }
 
         function togglePlural() {
@@ -295,16 +354,31 @@
             if (input.value === 'on') {
                 // Turn off
                 input.value = '';
+                btn.setAttribute('aria-pressed', 'false');
                 btn.className = "w-full p-2.5 h-11 rounded-lg border transition-all duration-200 flex items-center justify-between group bg-white border-gray-200 text-gray-500 hover:border-red-300 hover:text-red-600 dark:bg-darkcard dark:border-zinc-700 dark:text-gray-400";
                 circle.className = "w-5 h-5 rounded-full border-2 flex items-center justify-center transition-colors border-gray-300 group-hover:border-red-400";
                 icon.classList.add('hidden');
             } else {
                 // Turn on
                 input.value = 'on';
+                btn.setAttribute('aria-pressed', 'true');
                 btn.className = "w-full p-2.5 h-11 rounded-lg border transition-all duration-200 flex items-center justify-between group bg-red-50 border-red-200 text-red-700 dark:bg-red-900/20 dark:border-red-800 dark:text-red-300";
                 circle.className = "w-5 h-5 rounded-full border-2 flex items-center justify-center transition-colors border-red-500 bg-red-500 text-white";
                 icon.classList.remove('hidden');
             }
+        }
+
+        // Tablodaki bir biçime dokununca o hal ve sayı seçilip form gönderilir
+        const paradigma = document.getElementById('paradigma');
+        if (paradigma) {
+            paradigma.addEventListener('click', (event) => {
+                const cell = event.target.closest('button[data-hal]');
+                if (!cell) return;
+                document.getElementById('halSelect').value = cell.dataset.hal;
+                const wantPlural = cell.dataset.cogul === '1';
+                if ((document.getElementById('pluralInput').value === 'on') !== wantPlural) togglePlural();
+                document.getElementById('form-analiz').submit();
+            });
         }
 
         function fillRandom() {
@@ -337,29 +411,34 @@
         }
 
         document.addEventListener('DOMContentLoaded', function () {
-            {% if result %}
-            const newEntry = {
-                root: "{{ root }}",
-                word: "{{ final_word }}",
-                parts: [
-                    {% for part in result %}
-            { text: "{{ part.text }}", code: "{{ part.code }}", type: "{{ part.type }}" },
-            {% endfor %}
-                    ]
-        };
-        saveToHistory(newEntry);
-        {% endif %}
-        renderHistory();
+            {% if analiz %}
+            const newEntry = {{ {"root": analiz.kok, "word": analiz.son, "parts": analiz.parcalar}|tojson }};
+            saveToHistory(newEntry);
+            {% endif %}
+            renderHistory();
         });
 
+        function readHistory() {
+            try {
+                return JSON.parse(localStorage.getItem('chuvashHistory')) || [];
+            } catch (err) {
+                console.warn('Geçmiş okunamadı, sıfırlanıyor:', err);
+                localStorage.removeItem('chuvashHistory');
+                return [];
+            }
+        }
+
         function saveToHistory(entry) {
-            let history = JSON.parse(localStorage.getItem('chuvashHistory')) || [];
+            let history = readHistory();
+            const last = history[0];
+            if (last && last.root === entry.root && last.word === entry.word) return;
             history.unshift(entry);
             if (history.length > 20) history.pop();
             localStorage.setItem('chuvashHistory', JSON.stringify(history));
         }
 
         function renderHistory() {
+            // Eski kayıtlarda etiket yok; kod üzerinden gösterilir
             const codeMap = {
                 '1sg': '1.T.Ş',
                 '2sg': '2.T.Ş',
@@ -369,7 +448,7 @@
                 '3pl': '3.Ç.Ş',
                 'PL': 'Çoğul'
             };
-            let history = JSON.parse(localStorage.getItem('chuvashHistory')) || [];
+            const history = readHistory();
             const container = document.getElementById('history-container');
             const list = document.getElementById('history-list');
 
@@ -378,33 +457,34 @@
                 return;
             }
             container.style.display = 'block';
-            list.innerHTML = '';
+            list.replaceChildren();
 
             history.forEach(item => {
-                let partsHtml = '';
-                item.parts.forEach(part => {
-                    if (part.code !== 'Kök') {
-                        // codeMap içinde varsa onu yaz, yoksa orijinal kodu (part.code) yaz
-                        let displayCode = codeMap[part.code] || part.code; 
-                        
-                        partsHtml += `
-                        <span class="bg-red-50 dark:bg-zinc-700 text-red-600 dark:text-accent px-2 py-1 rounded border border-red-100 dark:border-zinc-600 font-semibold ml-1 text-xs">
-                            ${displayCode}
-                        </span>`;
-                    }
+                const card = document.createElement('div');
+                card.className = 'bg-white dark:bg-darkcard p-4 rounded-xl shadow-sm border border-gray-100 dark:border-zinc-800 hover:shadow-md transition flex justify-between items-center gap-3';
+
+                const left = document.createElement('div');
+                left.className = 'min-w-0';
+                const root = document.createElement('span');
+                root.className = 'text-xs text-gray-400 font-mono block mb-1';
+                root.textContent = 'Kök: ' + item.root;
+                const word = document.createElement('span');
+                word.className = 'text-lg font-bold text-gray-800 dark:text-gray-200 break-words';
+                word.textContent = item.word;
+                left.append(root, word);
+
+                const chips = document.createElement('div');
+                chips.className = 'flex flex-wrap justify-end gap-1 text-xs';
+                (item.parts || []).forEach(part => {
+                    if (part.code === 'Kök') return;
+                    const chip = document.createElement('span');
+                    chip.className = 'bg-red-50 dark:bg-zinc-700 text-red-600 dark:text-accent px-2 py-1 rounded border border-red-100 dark:border-zinc-600 font-semibold text-xs';
+                    chip.textContent = (part.label || codeMap[part.code] || part.code).replace(/^Kök \+ /, '');
+                    chips.append(chip);
                 });
 
-                const html = `
-                <div class="bg-white dark:bg-darkcard p-4 rounded-xl shadow-sm border border-gray-100 dark:border-zinc-800 hover:shadow-md transition flex justify-between items-center">
-                    <div>
-                        <span class="text-xs text-gray-400 font-mono block mb-1">Kök: ${item.root}</span>
-                        <span class="text-lg font-bold text-gray-800 dark:text-gray-200">${item.word}</span>
-                    </div>
-                    <div class="flex gap-1 text-xs">
-                        ${partsHtml}
-                    </div>
-                </div>`;
-                list.innerHTML += html;
+                card.append(left, chips);
+                list.append(card);
             });
         }
 

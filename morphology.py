@@ -1,241 +1,173 @@
 # -*- coding: utf-8 -*-
-VOWELS = {'а', 'ӑ', 'ы', 'у', 'э', 'ӗ', 'и', 'ӳ'}  # Ünlüler
-CONSONANTS = {'й', 'ц', 'к', 'н', 'г', 'ш', 'щ', 'з', 'х', 'ф', 'в', 'п', 'р', 'л', 'д', 'ж', 'ч', 'с', 'м', 'т', 'б', 'ю', 'я'}  # Ünsüzler
+"""
+Web arayüzü ile ChuvashFST motoru (chuvash_fst.py) arasındaki katman.
 
-BACK_VOWELS = {'а', 'ӑ', 'ы', 'у'}  # Kalın ünlüler
-FRONT_VOWELS = {'э', 'ӗ', 'и', 'ӳ'}  # İnce ünlüler
+Motor yalnız yüzey biçimini üretir. Arayüzdeki ek zinciri
+(Kök + İyelik + Çoğul + Hal) burada, motorun ara biçimleri son biçimle
+karşılaştırılarak çıkarılır. Parçaların birleşimi her zaman son biçime eşittir;
+bir ek yüzeyde kendi başına görünmüyorsa (ör. юлташ + у + на -> юлташна)
+sonraki ekle birleşik gösterilir.
+"""
+import re
 
-def get_vowel_harmony(word):
-    """Kelimenin ünlü uyumunu belirler."""
-    for char in reversed(word):
-        if char in BACK_VOWELS:
-            return 'back'
-        elif char in FRONT_VOWELS:
-            return 'front'
-    return 'back'
+from chuvash_fst import ChuvashFST, ChuvashPhonology, UncountableNounError
 
-def get_last_letter_type(word):
-    """Son harfin ünlü/ünsüz olduğunu belirler."""
-    if not word:
-        return 'consonant'
-    return 'vowel' if word[-1] in VOWELS else 'consonant'
+_FST = ChuvashFST()
 
-def has_single_consonant_before_ăĕ(word):
-    """ӑ/ӗ'den önce tek ünsüz var mı kontrol eder (iki heceli kelime için)."""
-    if len(word) >= 2 and word[-1] in {'ӑ', 'ӗ'}:
-        if word[-2] in CONSONANTS:
-            vowel_count = sum(1 for char in word if char in VOWELS)
-            return vowel_count >= 2
-    return False
+MAKS_UZUNLUK = 40
 
-# 1. TEKİL ŞAHIS İYELİK EKİ
-def get_first_singular_possessive(word):
-    if not word:
-        return word, ""
-    
-    harmony = get_vowel_harmony(word)
-    last_char = word[-1]
-    
-    # Kural 3: у/ӳ ile biten
-    if last_char in {'у', 'ӳ'}:
-        if harmony == 'back':
-            return word[:-1], 'ӑвӑм'
+# (form kodu, motor kodu, kısa etiket, seçenek adı)
+SAHISLAR = [
+    ("1sg", "A1", "1.T.Ş", "1. Tekil şahıs (ben)"),
+    ("2sg", "A2", "2.T.Ş", "2. Tekil şahıs (sen)"),
+    ("3sg", "A3", "3.T.Ş", "3. Tekil şahıs (o)"),
+    ("1pl", "B1", "1.Ç.Ş", "1. Çoğul şahıs (biz)"),
+    ("2pl", "B2", "2.Ç.Ş", "2. Çoğul şahıs (siz)"),
+    ("3pl", "B3", "3.Ç.Ş", "3. Çoğul şahıs (onlar)"),
+]
+
+# (motor kodu, Türkçe adı)
+HALLER = [
+    ("nominative", "Yalın"),
+    ("genitive", "İlgi"),
+    ("dative", "Yönelme"),
+    ("locative", "Bulunma"),
+    ("ablative", "Çıkma"),
+    ("instrumental", "Vasıta"),
+    ("abessive", "Yokluk"),
+    ("causal", "Sebep"),
+]
+
+_SAHIS_MOTOR = {kod: motor for kod, motor, _, _ in SAHISLAR}
+_SAHIS_ETIKET = {kod: etiket for kod, _, etiket, _ in SAHISLAR}
+_HAL_ADI = dict(HALLER)
+
+_COGUL_EKLERI = ("сем", "сен")          # eski hallerde сем -> сен
+_KIRIL = re.compile(r"[а-яёӑӗӳҫ]")
+_GECERLI = re.compile(r"^[а-яёӑӗӳҫ-]+$")
+
+
+class AnalizHatasi(ValueError):
+    """Kullanıcıya gösterilecek, girdiden kaynaklanan hata."""
+
+
+def _ortak_onek(a, b):
+    n = 0
+    for x, y in zip(a, b):
+        if x != y:
+            break
+        n += 1
+    return n
+
+
+def _kok_dogrula(girdi):
+    girdi = (girdi or "").strip()
+    if not girdi:
+        raise AnalizHatasi("Lütfen bir kök kelime girin.")
+    if len(girdi) > MAKS_UZUNLUK:
+        raise AnalizHatasi(f"Kelime çok uzun (en fazla {MAKS_UZUNLUK} harf).")
+    if not _KIRIL.search(girdi.lower()):
+        raise AnalizHatasi("Kelimeyi Kiril harfleriyle yazın (örn: лаша).")
+    kok = ChuvashPhonology.normalize(girdi)
+    if not _GECERLI.match(kok):
+        raise AnalizHatasi("Kelimede Çuvaşça olmayan bir karakter var.")
+    return kok
+
+
+def _ayristir(kok, sahis, slot, cogul, hal, son):
+    """Son biçimi Kök / İyelik / Sayı / Hal parçalarına böler."""
+    asamalar = [("Kök", "Kök", "Kök", [kok, ChuvashPhonology.geminate(kok)])]
+    if slot:
+        asamalar.append(("İyelik", sahis, _SAHIS_ETIKET[sahis],
+                         _FST.generate_variants(kok, slot)))
+    if cogul:
+        asamalar.append(("Sayı", "Çoğul", "Çoğul",
+                         _FST.generate_variants(kok, slot, True)))
+    if hal != "nominative":
+        asamalar.append(("Hal", hal, _HAL_ADI[hal], None))
+
+    parcalar, bas, bekleyen = [], 0, []
+    for i, (tur, kod, etiket, adaylar) in enumerate(asamalar):
+        if i == len(asamalar) - 1:
+            bit = len(son)
         else:
-            return word[:-1], 'ӗвӗм'
-    
-    # Kural 4: ӑ/ӗ ile biten ve öncesinde tek ünsüz (İKİZLEŞME - ă/ĕ DÜŞMEZ!)
-    if has_single_consonant_before_ăĕ(word):
-        consonant = word[-2]
-        stem = word[:-2] + consonant * 2
-        return stem + word[-1], 'м'
-    
-    # Kural 1: Ünsüzle biten
-    if get_last_letter_type(word) == 'consonant':
-        return word, ('ӑм' if harmony == 'back' else 'ӗм')
-    
-    # Kural 2: Ünlüyle biten (a, e, ă, ĕ, ы, и, ӳ)
-    return word, 'м'
-
-# 2. TEKİL ŞAHIS İYELİK EKİ  
-def get_second_singular_possessive(word):
-    if not word:
-        return word, ""
-    
-    harmony = get_vowel_harmony(word)
-    last_char = word[-1]
-    suffix = 'у' if harmony == 'back' else 'ӳ'
-    
-    # Kural 1: a/э ile biten (a ve э sesleri düşer)
-    if last_char in {'а', 'э'}:
-        return word[:-1], suffix
-    
-    # Kural 2: ӑ/ӗ ile biten ve öncesinde tek ünsüz (İKİZLEŞME - ă/ĕ DÜŞER!)
-    if has_single_consonant_before_ăĕ(word):
-        consonant = word[-2]
-        stem = word[:-2] + consonant * 2
-        return stem, suffix
-    
-    return word, suffix
-
-# 3. TEKİL ŞAHIS İYELİK EKİ
-def get_third_singular_possessive(word):
-    if not word:
-        return word, ""
-    
-    harmony = get_vowel_harmony(word)
-    last_char = word[-1]
-    
-    # Kural 4: т/д ile biten
-    if last_char in {'т', 'д'}:
-        return word[:-1], 'чӗ'
-    
-    # Kural 3: у/ӳ ile biten
-    if last_char in {'у', 'ӳ'}:
-        if harmony == 'back':
-            return word[:-1], 'ӑвӗ'
-        else:
-            return word[:-1], 'ӗвӗ'
-    
-    # Kural 2: и ile biten
-    if last_char == 'и':
-        return word, 'йӗ'
-    
-    # Kural 1: a/э/ă/ĕ ile biten (a/э/ă/ĕ sesleri düşer)
-    if last_char in {'а', 'э', 'ӑ', 'ӗ'}:
-        # ӑ/ӗ ile biten ve öncesinde tek ünsüz (İKİZLEŞME - ă/ĕ DÜŞER!)
-        if last_char in {'ӑ', 'ӗ'} and has_single_consonant_before_ăĕ(word):
-            consonant = word[-2]
-            stem = word[:-2] + consonant * 2
-            return stem, 'ӗ'
-        else:
-            return word[:-1], 'ӗ'
-    
-    # Diğer ünlülerle biten (ы/у/ӳ): direkt +ӗ
-    return word, 'ӗ'
-
-# 1. ÇOĞUL ŞAHIS İYELİK EKİ
-def get_first_plural_possessive(word):
-    """1. çoğul şahıs (bizim)"""
-    if not word:
-        return word, ""
-    
-    harmony = get_vowel_harmony(word)
-    last_char = word[-1]
-    
-    # у/ӳ ile biten
-    if last_char in {'у', 'ӳ'}:
-        if harmony == 'back':
-            return word[:-1], 'ӑвӑмӑр'
-        else:
-            return word[:-1], 'ӗвӗмӗр'
-    
-    # ӑ/ӗ ile biten ve öncesinde tek ünsüz (İKİZLEŞME)
-    if has_single_consonant_before_ăĕ(word):
-        consonant = word[-2]
-        stem = word[:-2] + consonant * 2
-        suffix = 'мӑр' if harmony == 'back' else 'мӗр'
-        return stem + word[-1], suffix
-    
-    # Ünsüzle biten
-    if get_last_letter_type(word) == 'consonant':
-        return word, ('ӑмӑр' if harmony == 'back' else 'ӗмӗр')
-    
-    # Ünlüyle biten (a, e, ă, ĕ, ы, и, ӳ)
-    return word, ('мӑр' if harmony == 'back' else 'мӗр')
-
-# 2. ÇOĞUL ŞAHIS İYELİK EKİ
-def get_second_plural_possessive(word):
-    """2. çoğul şahıs (sizin)"""
-    if not word:
-        return word, ""
-    
-    harmony = get_vowel_harmony(word)
-    last_char = word[-1]
-    
-    # у/ӳ ile biten
-    if last_char in {'у', 'ӳ'}:
-        if harmony == 'back':
-            return word[:-1], 'ӑвӑр'
-        else:
-            return word[:-1], 'ӗвӗр'
-    
-    # ӑ/ӗ ile biten ve öncesinde tek ünsüz (İKİZLEŞME)
-    if has_single_consonant_before_ăĕ(word):
-        consonant = word[-2]
-        stem = word[:-2] + consonant * 2
-        return stem, ('ӑр' if harmony == 'back' else 'ӗр')
-    
-    # Ünsüzle biten
-    if get_last_letter_type(word) == 'consonant':
-        return word, ('ӑр' if harmony == 'back' else 'ӗр')
-    
-    # Ünlüyle biten
-    return word, ('р' if harmony == 'back' else 'р')
-
-# 3. ÇOĞUL ŞAHIS İYELİK EKİ
-def get_third_plural_possessive(word):
-    """3. çoğul şahıs (onların) - 3. tekil ile aynı kurallar"""
-    return get_third_singular_possessive(word)
-
-def analyze(root, person_code, is_plural):
-    """
-    İsim çekim analizi yapar.
-    
-    Args:
-        root: Kök kelime
-        person_code: '1sg', '2sg', '3sg', '1pl', '2pl', '3pl' veya boş
-        is_plural: True/False
-    
-    Returns:
-        parts: Analiz parçaları listesi [{'text': '...', 'code': '...', 'type': '...'}]
-        final_word: Oluşturulan kelime
-    """
-    parts = []
-    current_word = root
-    
-    # 1. Kök
-    parts.append({
-        "text": root,
-        "code": "Kök",
-        "type": "Kök"
-    })
-    
-    # İyelik Eki
-    suffix_text = ""
-    if person_code:
-        stem = current_word
-        suffix = ""
-        
-        if person_code == '1sg': # 1. Tekil
-            stem, suffix = get_first_singular_possessive(current_word)
-        elif person_code == '2sg': # 2. Tekil
-            stem, suffix = get_second_singular_possessive(current_word)
-        elif person_code == '3sg': # 3. Tekil
-            stem, suffix = get_third_singular_possessive(current_word)
-        elif person_code == '1pl': # 1. Çoğul
-            stem, suffix = get_first_plural_possessive(current_word)
-        elif person_code == '2pl': # 2. Çoğul
-            stem, suffix = get_second_plural_possessive(current_word)
-        elif person_code == '3pl': # 3. Çoğul
-            stem, suffix = get_third_plural_possessive(current_word)
-            
-        if suffix:
-            parts.append({
-                "text": suffix,
-                "code": person_code,
-                "type": "İyelik"
-            })
-            current_word = stem + suffix
-
-    # Sayı (Çoğul) Eki
-    if is_plural:
-        # Çuvaşça çoğul eki -сем
-        suffix = 'сем'
-        parts.append({
-            "text": suffix,
-            "code": "Çoğul",
-            "type": "Sayı"
+            bit = max(_ortak_onek(a, son) for a in adaylar)
+            if tur == "Kök" and bit * 2 < len(kok):
+                bit = 0                                  # düzensiz gövde: атте -> ашшӗ
+            if tur == "Sayı" and son[bas:bas + 3] in _COGUL_EKLERI:
+                bit = bas + 3
+        bekleyen.append((tur, kod, etiket))
+        if bit <= bas:
+            continue                                     # yüzeyde ayrı görünmüyor
+        parcalar.append({
+            "text": son[bas:bit],
+            "code": "+".join(k for _, k, _ in bekleyen),
+            "type": "+".join(t for t, _, _ in bekleyen),
+            "label": " + ".join(e for _, _, e in bekleyen),
         })
-        current_word = current_word + suffix
-    
-    return parts, current_word
+        bas, bekleyen = bit, []
+    if bekleyen:                                         # son ek boş kaldıysa öncekine katılır
+        p = parcalar[-1]
+        p["code"] += "".join("+" + k for _, k, _ in bekleyen)
+        p["type"] += "".join("+" + t for t, _, _ in bekleyen)
+        p["label"] += "".join(" + " + e for _, _, e in bekleyen)
+    return parcalar
+
+
+def _tablo(kok, slot, hal, cogul):
+    try:
+        _FST.generate_variants(kok, slot, True)
+        sayilabilir = True
+    except UncountableNounError:
+        sayilabilir = False
+    satirlar = []
+    for kod, ad in HALLER:
+        satirlar.append({
+            "hal": kod,
+            "ad": ad,
+            "tekil": _FST.generate_variants(kok, slot, False, kod),
+            "cogul": _FST.generate_variants(kok, slot, True, kod) if sayilabilir else None,
+            "secili_tekil": kod == hal and not cogul,
+            "secili_cogul": kod == hal and cogul,
+        })
+    return satirlar, sayilabilir
+
+
+def analyze(root, person_code=None, is_plural=False, case="nominative"):
+    """
+    İsim çekimi yapar ve ek zincirini çıkarır.
+
+    Args:
+        root: kök kelime (Kiril; Latin ă ĕ ç ÿ da kabul edilir)
+        person_code: '1sg', '2sg', '3sg', '1pl', '2pl', '3pl' ya da boş (iyeliksiz)
+        is_plural: çoğul mu
+        case: 'nominative', 'genitive', 'dative', 'locative', 'ablative',
+              'instrumental', 'abessive', 'causal'
+
+    Returns:
+        dict: kok, parcalar, son, digerleri, tablo, sayilabilir
+    Raises:
+        AnalizHatasi: girdi geçersizse ya da sayılamayan isme çoğul istendiyse
+    """
+    kok = _kok_dogrula(root)
+    if person_code and person_code not in _SAHIS_MOTOR:
+        raise AnalizHatasi("Geçersiz şahıs seçimi.")
+    if case not in _HAL_ADI:
+        raise AnalizHatasi("Geçersiz hal seçimi.")
+    slot = _SAHIS_MOTOR[person_code] if person_code else None
+
+    tablo, sayilabilir = _tablo(kok, slot, case, is_plural)
+    if is_plural and not sayilabilir:
+        raise AnalizHatasi(f"«{kok}» sayılamayan bir isim; çoğul eki almaz. "
+                           "Çoğul seçimini kaldırıp yeniden deneyin.")
+
+    bicimler = _FST.generate_variants(kok, slot, is_plural, case)
+    son = bicimler[0]
+    return {
+        "kok": kok,
+        "parcalar": _ayristir(kok, person_code, slot, is_plural, case, son),
+        "son": son,
+        "digerleri": bicimler[1:],
+        "tablo": tablo,
+        "sayilabilir": sayilabilir,
+    }
