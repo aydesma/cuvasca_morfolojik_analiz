@@ -9,6 +9,7 @@ bir ek yüzeyde kendi başına görünmüyorsa (ör. юлташ + у + на -> �
 sonraki ekle birleşik gösterilir.
 """
 import re
+import unicodedata
 
 from chuvash_fst import ChuvashFST, ChuvashPhonology, UncountableNounError
 
@@ -44,7 +45,10 @@ _HAL_ADI = dict(HALLER)
 
 _COGUL_EKLERI = ("сем", "сен")          # eski hallerde сем -> сен
 _KIRIL = re.compile(r"[а-яёӑӗӳҫ]")
-_GECERLI = re.compile(r"^[а-яёӑӗӳҫ-]+$")
+_GECERLI = re.compile(r"^[а-яёӑӗӳҫ]+$")
+_UNLULER = ChuvashPhonology.VOWELS | frozenset("ёюя")
+# Kopyala-yapıştırla gelen benzer harfler: ӱ (U+04F1) ve с + birleşik çengel
+_BENZER_HARFLER = (("с̧", "ҫ"), ("С̧", "Ҫ"), ("ӱ", "ӳ"), ("Ӱ", "Ӳ"))
 
 
 class AnalizHatasi(ValueError):
@@ -61,7 +65,9 @@ def _ortak_onek(a, b):
 
 
 def _kok_dogrula(girdi):
-    girdi = (girdi or "").strip()
+    girdi = unicodedata.normalize("NFC", girdi or "").strip()   # ayrışık ӑ, й ... birleşir
+    for eski, yeni in _BENZER_HARFLER:
+        girdi = girdi.replace(eski, yeni)
     if not girdi:
         raise AnalizHatasi("Lütfen bir kök kelime girin.")
     if len(girdi) > MAKS_UZUNLUK:
@@ -69,14 +75,21 @@ def _kok_dogrula(girdi):
     if not _KIRIL.search(girdi.lower()):
         raise AnalizHatasi("Kelimeyi Kiril harfleriyle yazın (örn: лаша).")
     kok = ChuvashPhonology.normalize(girdi)
+    if "-" in kok:
+        raise AnalizHatasi("Tireli bileşik kelimeler desteklenmiyor; son bileşeni tek başına girin.")
     if not _GECERLI.match(kok):
         raise AnalizHatasi("Kelimede Çuvaşça olmayan bir karakter var.")
+    if not any(h in _UNLULER for h in kok):
+        raise AnalizHatasi("Kelimede ünlü yok; geçerli bir Çuvaşça kök girin.")
     return kok
 
 
 def _ayristir(kok, sahis, slot, cogul, hal, son):
     """Son biçimi Kök / İyelik / Sayı / Hal parçalarına böler."""
-    asamalar = [("Kök", "Kök", "Kök", [kok, ChuvashPhonology.geminate(kok)])]
+    kok_govdeleri = [kok, ChuvashPhonology.geminate(kok)]       # сӑвӑ -> сӑввӑ
+    if kok[-1] in "уӳ":
+        kok_govdeleri.append(_FST._uu_stem(kok))                 # ҫыру -> ҫырӑв
+    asamalar = [("Kök", "Kök", "Kök", kok_govdeleri)]
     if slot:
         asamalar.append(("İyelik", sahis, _SAHIS_ETIKET[sahis],
                          _FST.generate_variants(kok, slot)))

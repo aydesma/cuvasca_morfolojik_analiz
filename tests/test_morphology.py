@@ -73,6 +73,11 @@ class EkZinciri(unittest.TestCase):
             (("сӑвӑ", "2sg"), [("сӑвв", "Kök"), ("у", "2.T.Ş")]),                # ikizleşme
             (("пулӑ", None, False, "genitive"), [("пуллӑ", "Kök"), ("н", "İlgi")]),
             (("ача",), [("ача", "Kök")]),
+            # у/ӳ ile biten kök: gövde ӑв/ӗв kökte kalır
+            (("ту", "1sg"), [("тӑв", "Kök"), ("ӑм", "1.T.Ş")]),
+            (("ҫыру", None, False, "genitive"), [("ҫырӑв", "Kök"), ("ӑн", "İlgi")]),
+            (("ҫыру", None, False, "locative"), [("ҫыру", "Kök"), ("ра", "Bulunma")]),
+            (("кӗрӳ", "1pl"), [("кӗрӗв", "Kök"), ("ӗмӗр", "1.Ç.Ş")]),
         ]
         for args, beklenen in durumlar:
             with self.subTest(args=args):
@@ -141,6 +146,22 @@ class GirdiDenetimi(unittest.TestCase):
         self.assertIn("çok uzun", self.hata("а" * 41))
         self.assertIn("şahıs", self.hata("лаша", "4sg"))
         self.assertIn("hal", self.hata("лаша", None, False, "vocative"))
+        for kelime in ("ь", "ъ", "кщк"):
+            with self.subTest(kelime=kelime):
+                self.assertIn("ünlü yok", self.hata(kelime))
+        for kelime in ("лаша-", "-а", "юрӑ-сӑвӑ", "ача--пӑча"):
+            with self.subTest(kelime=kelime):
+                self.assertIn("Tireli", self.hata(kelime))
+
+    def test_ayrisik_ve_benzer_harfler_kabul_edilir(self):
+        import unicodedata
+        for kelime, beklenen in (("сӑвӑ", "сӑввӑм"), ("кукамай", "кукамайӑм"), ("кӗрӳ", "кӗрӗвӗм")):
+            with self.subTest(kelime=kelime):
+                ayrisik = unicodedata.normalize("NFD", kelime)
+                self.assertNotEqual(ayrisik, kelime)
+                self.assertEqual(analyze(ayrisik, "1sg")["son"], beklenen)
+        self.assertEqual(analyze("с̧ыру")["kok"], "ҫыру")
+        self.assertEqual(analyze("кӗрӱ")["kok"], "кӗрӳ")
 
     def test_sayilamayan_isme_cogul(self):
         for kok in ("сӗт", "утӑ", "ӑслӑх"):
