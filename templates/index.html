@@ -30,8 +30,25 @@
             }
         }
 
+        // Tarayıcı depolaması engelli olabilir (gizli pencere, site verisi kapalı); sayfa onsuz da çalışır
+        const depo = {
+            oku(anahtar) {
+                try { return localStorage.getItem(anahtar); }
+                catch (err) { console.warn('Tarayıcı depolaması okunamadı:', err); return null; }
+            },
+            yaz(anahtar, deger) {
+                try { localStorage.setItem(anahtar, deger); }
+                catch (err) { console.warn('Tarayıcı depolamasına yazılamadı:', err); }
+            },
+            sil(anahtar) {
+                try { localStorage.removeItem(anahtar); }
+                catch (err) { console.warn('Tarayıcı depolamasından silinemedi:', err); }
+            },
+        };
+
         // Tema, sayfa çizilmeden önce uygulanır (açılışta beyaz parlama olmasın)
-        if (localStorage.getItem('theme') === 'dark' || (!('theme' in localStorage) && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
+        const savedTheme = depo.oku('theme');
+        if (savedTheme === 'dark' || (savedTheme === null && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
             document.documentElement.classList.add('dark');
         }
     </script>
@@ -271,7 +288,8 @@
                                 <th scope="col" class="text-left font-semibold px-2 sm:px-3 py-2">Çoğul</th>
                             </tr>
                         </thead>
-                        <tbody id="paradigma" class="divide-y divide-gray-100 dark:divide-zinc-800">
+                        <tbody id="paradigma" data-root="{{ analiz.kok }}" data-sahis="{{ selected_sahis }}"
+                            class="divide-y divide-gray-100 dark:divide-zinc-800">
                             {% for satir in analiz.tablo %}
                             <tr>
                                 <th scope="row" class="text-left font-medium text-gray-600 dark:text-gray-300 px-2 sm:px-3 py-2 align-top">{{ satir.ad }}</th>
@@ -332,17 +350,24 @@
 
         themeToggle.addEventListener('click', () => {
             htmlElement.classList.toggle('dark');
-            localStorage.setItem('theme', htmlElement.classList.contains('dark') ? 'dark' : 'light');
             syncThemeIcons();
+            depo.yaz('theme', htmlElement.classList.contains('dark') ? 'dark' : 'light');
         });
 
+        // Harf tuşu, kullanıcı kutuda imleci konumlandırdıysa oraya, yoksa sona ekler
+        const rootInput = document.getElementById('rootInput');
+        let caret = null;
+        ['input', 'click', 'keyup', 'select'].forEach(ev => rootInput.addEventListener(ev, () => {
+            caret = [rootInput.selectionStart, rootInput.selectionEnd];
+        }));
+
         function addChar(char) {
-            const input = document.getElementById('rootInput');
-            const start = input.selectionStart ?? input.value.length;
-            const end = input.selectionEnd ?? input.value.length;
-            input.value = input.value.slice(0, start) + char + input.value.slice(end);
-            input.focus();
-            input.setSelectionRange(start + char.length, start + char.length);
+            const [start, end] = caret ?? [rootInput.value.length, rootInput.value.length];
+            rootInput.value = rootInput.value.slice(0, start) + char + rootInput.value.slice(end);
+            const next = start + char.length;
+            rootInput.focus();
+            rootInput.setSelectionRange(next, next);
+            caret = [next, next];
         }
 
         function togglePlural() {
@@ -368,12 +393,14 @@
             }
         }
 
-        // Tablodaki bir biçime dokununca o hal ve sayı seçilip form gönderilir
+        // Tablodaki bir biçime dokununca tablonun kökü ve iyeliğiyle o hal ve sayı gönderilir
         const paradigma = document.getElementById('paradigma');
         if (paradigma) {
             paradigma.addEventListener('click', (event) => {
                 const cell = event.target.closest('button[data-hal]');
                 if (!cell) return;
+                rootInput.value = paradigma.dataset.root;
+                document.getElementById('sahisSelect').value = paradigma.dataset.sahis;
                 document.getElementById('halSelect').value = cell.dataset.hal;
                 const wantPlural = cell.dataset.cogul === '1';
                 if ((document.getElementById('pluralInput').value === 'on') !== wantPlural) togglePlural();
@@ -395,7 +422,8 @@
                 "улма", "çырла", "хӗвел", "çӑлтӑр", "çер", "уй", "вӑрман"
             ];
             const randomWord = words[Math.floor(Math.random() * words.length)];
-            document.getElementById('rootInput').value = randomWord;
+            rootInput.value = randomWord;
+            caret = null;
         }
 
         function copyResult() {
@@ -419,11 +447,14 @@
         });
 
         function readHistory() {
+            const raw = depo.oku('chuvashHistory');
+            if (raw === null) return [];
             try {
-                return JSON.parse(localStorage.getItem('chuvashHistory')) || [];
+                const history = JSON.parse(raw);
+                return Array.isArray(history) ? history.filter(item => item && typeof item === 'object') : [];
             } catch (err) {
                 console.warn('Geçmiş okunamadı, sıfırlanıyor:', err);
-                localStorage.removeItem('chuvashHistory');
+                depo.sil('chuvashHistory');
                 return [];
             }
         }
@@ -434,7 +465,7 @@
             if (last && last.root === entry.root && last.word === entry.word) return;
             history.unshift(entry);
             if (history.length > 20) history.pop();
-            localStorage.setItem('chuvashHistory', JSON.stringify(history));
+            depo.yaz('chuvashHistory', JSON.stringify(history));
         }
 
         function renderHistory() {
@@ -467,19 +498,19 @@
                 left.className = 'min-w-0';
                 const root = document.createElement('span');
                 root.className = 'text-xs text-gray-400 font-mono block mb-1';
-                root.textContent = 'Kök: ' + item.root;
+                root.textContent = 'Kök: ' + (item.root ?? '');
                 const word = document.createElement('span');
                 word.className = 'text-lg font-bold text-gray-800 dark:text-gray-200 break-words';
-                word.textContent = item.word;
+                word.textContent = item.word ?? '';
                 left.append(root, word);
 
                 const chips = document.createElement('div');
                 chips.className = 'flex flex-wrap justify-end gap-1 text-xs';
-                (item.parts || []).forEach(part => {
-                    if (part.code === 'Kök') return;
+                (Array.isArray(item.parts) ? item.parts : []).forEach(part => {
+                    if (!part || part.code === 'Kök') return;
                     const chip = document.createElement('span');
                     chip.className = 'bg-red-50 dark:bg-zinc-700 text-red-600 dark:text-accent px-2 py-1 rounded border border-red-100 dark:border-zinc-600 font-semibold text-xs';
-                    chip.textContent = (part.label || codeMap[part.code] || part.code).replace(/^Kök \+ /, '');
+                    chip.textContent = String(part.label || codeMap[part.code] || part.code || '').replace(/^Kök \+ /, '');
                     chips.append(chip);
                 });
 
@@ -489,7 +520,7 @@
         }
 
         function clearHistory() {
-            localStorage.removeItem('chuvashHistory');
+            depo.sil('chuvashHistory');
             renderHistory();
         }
     </script>
