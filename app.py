@@ -29,11 +29,11 @@ def index():
         selected_plural = is_plural
         selected_hal = hal
 
-        if root:
-            try:
-                analiz = analyze(root, sahis_code or None, is_plural, hal)
-            except AnalizHatasi as e:
-                error = str(e)
+        try:
+            analiz = analyze(root, sahis_code or None, is_plural, hal)
+            root_word = analiz["kok"]       # kutuda normalize kök görünür (Çын -> ҫын)
+        except AnalizHatasi as e:
+            error = str(e)
 
     return render_template('index.html',
                          analiz=analiz,

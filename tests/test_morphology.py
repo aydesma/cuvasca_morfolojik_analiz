@@ -1,22 +1,18 @@
 # -*- coding: utf-8 -*-
 """Uyarlayıcı katman (morphology.py): ek zinciri, tablo ve girdi denetimi."""
+import pathlib
+import re
 import unittest
+from unittest import mock
 
-from chuvash_fst import ChuvashPhonology, generate_variants
+import chuvash_fst
+from chuvash_fst import ChuvashFST, ChuvashPhonology, UncountableNounError, generate_variants
 from morphology import HALLER, SAHISLAR, AnalizHatasi, analyze
 
-ORNEK_KOKLER = [
-    # arayüzdeki "Örnek Getir" listesi
-    "анне", "атте", "кукамай", "кукаçи", "шӑллӑм", "пичче", "аппа", "йӑмӑк",
-    "куç", "пуç", "алӑ", "ура", "пӳрне", "шӑл", "хӑлха", "чӗре",
-    "кил", "алӑк", "чӳрече", "сӗтел", "пӳлӗм", "сад", "телефон", "компьютер",
-    "шыв", "ту", "юханшыв", "тинӗс", "йывӑç", "чечек", "çулçӑ", "пӗлӗт", "çумӑр",
-    "лаша", "йытӑ", "кушак", "кайӑк", "сурӑх", "ӗне",
-    "тӑван", "ял", "хула", "çул", "кун", "уйӑх", "вӑхӑт",
-    "кӗнеке", "тетрадь", "карандаш", "ручка", "парта", "шкул", "класс",
-    "учитель", "вӗренекен", "студент", "университет", "библиотека",
-    "магазин", "пазар", "çӑкӑр", "сӗт", "çу", "аш", "пулӑ", "çимӗç",
-    "улма", "çырла", "хӗвел", "çӑлтӑр", "çер", "уй", "вӑрман",
+_SABLON = (pathlib.Path(__file__).resolve().parents[1] / "templates" / "index.html").read_text(encoding="utf-8")
+# arayüzdeki "Örnek Getir" listesi (şablondan okunur, elle kopyalanmaz)
+ORNEK_GETIR = re.findall(r'"([^"]+)"', re.search(r"const words = \[(.*?)\];", _SABLON, re.S).group(1))
+ORNEK_KOKLER = ORNEK_GETIR + [
     # motor testlerindeki özel durumlar
     "сӑвӑ", "сӗлӗ", "пӗрчӗ", "пӑчкӑ", "ҫыру", "кӗрӳ", "шӑши", "турат", "тетрат",
     "портфель", "кукка", "мучи", "пальто", "ача", "тус", "юлташ", "хӗр",
@@ -39,13 +35,14 @@ class TumKombinasyonlar(unittest.TestCase):
                 for cogul in (False, True):
                     for hal in HAL_KODLARI:
                         with self.subTest(kok=kok, sahis=sahis, cogul=cogul, hal=hal):
+                            slot = dict((k, m) for k, m, _, _ in SAHISLAR).get(sahis)
                             try:
                                 s = analyze(kok, sahis, cogul, hal)
                             except AnalizHatasi as e:
-                                self.assertTrue(cogul, f"tekilde hata: {e}")
                                 self.assertIn("sayılamayan", str(e))
+                                with self.assertRaises(UncountableNounError):   # motor da çoğulu reddetmeli
+                                    generate_variants(kok, slot, cogul, hal)
                                 continue
-                            slot = dict((k, m) for k, m, _, _ in SAHISLAR).get(sahis)
                             motor = generate_variants(kok, slot, cogul, hal)
                             self.assertEqual(s["son"], motor[0])
                             self.assertEqual(s["digerleri"], motor[1:])
@@ -58,6 +55,65 @@ class TumKombinasyonlar(unittest.TestCase):
                             self.assertEqual(turler, sorted(turler, key=SIRA.get))
                             sayi += 1
         self.assertGreater(sayi, 10000)
+
+
+class KodlaSiteAyni(unittest.TestCase):
+    """Kullanıcının motoru (chuvash_fst.py) sitede birebir çalışır: istisnalar dahil."""
+
+    def test_motorun_kendi_kontrolleri_site_katmanindan_gecer(self):
+        # _run_tests() içindeki her kontrol, generate_word/generate_variants yerine analyze() ile koşulur
+        slotlar = {m: k for k, m, _, _ in SAHISLAR}
+        ciftler = {(1, "sg"): "1sg", (2, "sg"): "2sg", (3, "sg"): "3sg",
+                   (1, "pl"): "1pl", (2, "pl"): "2pl", (3, "pl"): "3pl"}
+        fst = ChuvashFST()
+
+        def site(root, poss=None, is_plural=False, case="nominative"):
+            sahis = None if poss is None else (ciftler.get(poss) if isinstance(poss, tuple)
+                                               else slotlar.get(str(poss).upper()))
+            if poss is not None and sahis is None:
+                raise ValueError(poss)
+            try:
+                s = analyze(root, sahis, is_plural, fst._parse_case(case))
+            except AnalizHatasi as e:
+                if "sayılamayan" in str(e):
+                    raise UncountableNounError(str(e))
+                raise
+            return [s["son"]] + s["digerleri"]
+
+        with mock.patch.object(chuvash_fst, "generate_variants", site), \
+                mock.patch.object(chuvash_fst, "generate_word", lambda *a, **k: site(*a, **k)[0]), \
+                mock.patch("builtins.print"):
+            self.assertGreaterEqual(chuvash_fst._run_tests(), 163)
+
+    def test_istisna_sozlukleri_sitede(self):
+        for kok, ucuncu in {**ChuvashFST.KINSHIP_THIRD, **ChuvashFST.IRREGULAR_THIRD}.items():
+            with self.subTest(kok=kok):
+                self.assertEqual(analyze(kok, "3sg")["son"], ucuncu)
+                self.assertEqual(analyze(kok, "3pl")["son"], ucuncu)
+        for kok in ChuvashFST.UNCOUNTABLE_WORDS:
+            with self.subTest(kok=kok):
+                with self.assertRaisesRegex(AnalizHatasi, "sayılamayan"):
+                    analyze(kok, None, True)
+
+    def test_tablonun_her_hucresi_motorla_ayni(self):
+        slot = {k: m for k, m, _, _ in SAHISLAR}
+        for kok in ORNEK_KOKLER:
+            s = analyze(kok)
+            for t in s["tablo"]:
+                for r in t["satirlar"]:
+                    for h in r["hucreler"]:
+                        with self.subTest(kok=kok, cogul=t["cogul"], hal=r["hal"], sahis=h["sahis"]):
+                            self.assertEqual(h["bicimler"],
+                                             generate_variants(kok, slot.get(h["sahis"]), t["cogul"], r["hal"]))
+
+
+class OrnekListesi(unittest.TestCase):
+    def test_ornek_getir_kelimeleri_kiril_ve_hatasiz(self):
+        self.assertGreater(len(ORNEK_GETIR), 50)
+        for kelime in ORNEK_GETIR:
+            with self.subTest(kelime=kelime):
+                self.assertRegex(kelime, r"^[а-яёӑӗӳҫ]+$")     # Latin ç değil Kiril ҫ (harf tuşuyla aynı)
+                self.assertEqual(analyze(kelime)["kok"], kelime)
 
 
 class EkZinciri(unittest.TestCase):
@@ -250,8 +306,9 @@ class GirdiDenetimi(unittest.TestCase):
         for kelime in ("лаша-", "-а", "ача--пӑча"):
             with self.subTest(kelime=kelime):
                 self.assertIn("Tire iki kelimenin", self.hata(kelime))
-        self.assertIn("Çuvaşça olmayan", self.hata("ача - пӑча"))
-        self.assertIn("Çuvaşça olmayan", self.hata("ача-1"))
+        self.assertIn("Çuvaşça olmayan karakter var: boşluk.", self.hata("ача - пӑча"))
+        self.assertIn("«–»", self.hata("ача–пӑча"))                     # yarım çizgi tire sayılmaz
+        self.assertIn("«1»", self.hata("ача-1"))
         self.assertIn("ünlü yok", self.hata("кщк-лаша"))
 
     def test_ayrisik_ve_benzer_harfler_kabul_edilir(self):

@@ -33,5 +33,9 @@ python app.py
 python -m unittest
 ```
 
-Motorun kendi 163 kontrolü, bütün kök × iyelik × sayı × hal kombinasyonlarında
-ek zincirinin son biçimi oluşturduğu ve form akışı sınanır.
+Motorun kendi 163 kontrolü hem doğrudan hem sitenin katmanı (`morphology.analyze`)
+üzerinden koşulur; böylece istisnalar dahil motorun sitede birebir çalıştığı
+sınanır. Ayrıca "Örnek Getir" listesi (şablondan okunur) ve motorun özel durum
+kelimelerinde (98 kök) bütün iyelik × sayı × hal kombinasyonlarında sonuç kutusu,
+ek zinciri ve paradigma tablosunun motorla aynı olduğu, tablo hücrelerinin
+tıklanınca kendi biçimini verdiği ve form akışı sınanır.

@@ -281,6 +281,7 @@
                 <p class="mt-4 mb-2 text-xs font-bold uppercase tracking-wider text-green-600 dark:text-green-400">{{ tablo.ad }}</p>
                 <div class="overflow-x-auto rounded-xl border border-gray-200 dark:border-zinc-800">
                     <table class="min-w-full text-sm">
+                        <caption class="sr-only">{{ analiz.kok }} · {{ tablo.ad }}: 8 hal × iyelik</caption>
                         <thead class="bg-gray-50 dark:bg-zinc-900 text-gray-500 dark:text-gray-400">
                             <tr>
                                 <th scope="col" class="sticky left-0 z-10 bg-gray-50 dark:bg-zinc-900 text-left font-semibold px-2 sm:px-3 py-2">Hal</th>
@@ -320,7 +321,7 @@
     <div class="w-full max-w-3xl" id="history-container" style="display:none;">
         <div class="flex items-center justify-between mb-4 px-2">
             <h3 class="text-lg font-bold text-gray-700 dark:text-gray-300">Geçmiş Aramalar</h3>
-            <button type="button" onclick="clearHistory()" class="text-xs text-red-500 hover:text-red-700 underline">Geçmişi
+            <button type="button" onclick="clearHistory()" class="text-xs text-red-500 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300 underline">Geçmişi
                 Temizle</button>
         </div>
         <div class="grid gap-3" id="history-list">
@@ -407,16 +408,16 @@
 
         function fillRandom() {
             const words = [
-                "анне", "атте", "кукамай", "кукаçи", "шӑллӑм", "пичче", "аппа", "йӑмӑк",
-                "куç", "пуç", "алӑ", "ура", "пӳрне", "шӑл", "хӑлха", "чӗре",
+                "анне", "атте", "кукамай", "кукаҫи", "шӑллӑм", "пичче", "аппа", "йӑмӑк",
+                "куҫ", "пуҫ", "алӑ", "ура", "пӳрне", "шӑл", "хӑлха", "чӗре",
                 "кил", "алӑк", "чӳрече", "сӗтел", "пӳлӗм", "сад", "телефон", "компьютер",
-                "шыв", "ту", "юханшыв", "тинӗс", "йывӑç", "чечек", "çулçӑ", "пӗлӗт", "çумӑр",
+                "шыв", "ту", "юханшыв", "тинӗс", "йывӑҫ", "чечек", "ҫулҫӑ", "пӗлӗт", "ҫумӑр",
                 "лаша", "йытӑ", "кушак", "кайӑк", "сурӑх", "ӗне",
-                "тӑван", "ял", "хула", "çул", "кун", "уйӑх", "вӑхӑт",
+                "тӑван", "ял", "хула", "ҫул", "кун", "уйӑх", "вӑхӑт",
                 "кӗнеке", "тетрадь", "карандаш", "ручка", "парта", "шкул", "класс",
                 "учитель", "вӗренекен", "студент", "университет", "библиотека",
-                "магазин", "пазар", "çӑкӑр", "сӗт", "çу", "аш", "пулӑ", "çимӗç",
-                "улма", "çырла", "хӗвел", "çӑлтӑр", "çер", "уй", "вӑрман"
+                "магазин", "пазар", "ҫӑкӑр", "сӗт", "ҫу", "аш", "пулӑ", "ҫимӗҫ",
+                "улма", "ҫырла", "хӗвел", "ҫӑлтӑр", "ҫер", "уй", "вӑрман"
             ];
             const randomWord = words[Math.floor(Math.random() * words.length)];
             rootInput.value = randomWord;
@@ -435,47 +436,43 @@
             });
         }
 
+        // Geçmiş yeni anahtarda tutulur. Eski anahtardaki kayıtları eski iyelik motoru üretmişti
+        // (bir kısmı yanlış çekimdi, ör. анне + 1.T.Ş = аннеӑм); yeni sonuçlarla karışmasın diye silinir.
+        const GECMIS = 'chuvashHistory2';
+        depo.sil('chuvashHistory');
+
         document.addEventListener('DOMContentLoaded', function () {
             {% if analiz %}
-            const newEntry = {{ {"root": analiz.kok, "word": analiz.son, "parts": analiz.parcalar}|tojson }};
+            const newEntry = {{ {"root": analiz.kok, "word": analiz.son, "parts": analiz.parcalar,
+                                  "sahis": selected_sahis, "cogul": selected_plural, "hal": selected_hal}|tojson }};
             saveToHistory(newEntry);
             {% endif %}
             renderHistory();
         });
 
         function readHistory() {
-            const raw = depo.oku('chuvashHistory');
+            const raw = depo.oku(GECMIS);
             if (raw === null) return [];
             try {
                 const history = JSON.parse(raw);
                 return Array.isArray(history) ? history.filter(item => item && typeof item === 'object') : [];
             } catch (err) {
                 console.warn('Geçmiş okunamadı, sıfırlanıyor:', err);
-                depo.sil('chuvashHistory');
+                depo.sil(GECMIS);
                 return [];
             }
         }
 
+        // Aynı analiz (kök, iyelik, sayı, hal) yeniden yapılırsa kopyalanmaz, başa taşınır
         function saveToHistory(entry) {
-            let history = readHistory();
-            const last = history[0];
-            if (last && last.root === entry.root && last.word === entry.word) return;
+            const ayni = item => item.root === entry.root && item.sahis === entry.sahis
+                && item.cogul === entry.cogul && item.hal === entry.hal;
+            const history = readHistory().filter(item => !ayni(item));
             history.unshift(entry);
-            if (history.length > 20) history.pop();
-            depo.yaz('chuvashHistory', JSON.stringify(history));
+            depo.yaz(GECMIS, JSON.stringify(history.slice(0, 20)));
         }
 
         function renderHistory() {
-            // Eski kayıtlarda etiket yok; kod üzerinden gösterilir
-            const codeMap = {
-                '1sg': '1.T.Ş',
-                '2sg': '2.T.Ş',
-                '3sg': '3.T.Ş',
-                '1pl': '1.Ç.Ş',
-                '2pl': '2.Ç.Ş',
-                '3pl': '3.Ç.Ş',
-                'PL': 'Çoğul'
-            };
             const history = readHistory();
             const container = document.getElementById('history-container');
             const list = document.getElementById('history-list');
@@ -507,7 +504,7 @@
                     if (!part || part.code === 'Kök') return;
                     const chip = document.createElement('span');
                     chip.className = 'bg-red-50 dark:bg-zinc-700 text-red-600 dark:text-accent px-2 py-1 rounded border border-red-100 dark:border-zinc-600 font-semibold text-xs';
-                    chip.textContent = String(part.label || codeMap[part.code] || part.code || '').replace(/^Kök \+ /, '');
+                    chip.textContent = String(part.label || part.code || '').replace(/^Kök \+ /, '');
                     chips.append(chip);
                 });
 
@@ -517,7 +514,7 @@
         }
 
         function clearHistory() {
-            depo.sil('chuvashHistory');
+            depo.sil(GECMIS);
             renderHistory();
         }
     </script>

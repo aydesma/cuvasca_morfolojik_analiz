@@ -78,13 +78,15 @@ def _kok_dogrula(girdi):
     if len(girdi) > MAKS_UZUNLUK:
         raise AnalizHatasi(f"Kelime çok uzun (en fazla {MAKS_UZUNLUK} harf).")
     if not _KIRIL.search(girdi.lower()):
-        raise AnalizHatasi("Kelimeyi Kiril harfleriyle yazın (örn: лаша).")
+        raise AnalizHatasi("Kelimeyi Kiril harfleriyle yazın (örn: анне).")
     kok = ChuvashPhonology.normalize(girdi)
     kelimeler = kok.split("-")                                   # tireli bileşik: ача-пӑча
     if not all(kelimeler):
         raise AnalizHatasi("Tire iki kelimenin arasında olmalı (örn: ача-пӑча).")
-    if not all(_GECERLI.match(k) for k in kelimeler):
-        raise AnalizHatasi("Kelimede Çuvaşça olmayan bir karakter var.")
+    gecersiz = sorted({h for k in kelimeler for h in k if not _GECERLI.match(h)})
+    if gecersiz:
+        adlar = dict.fromkeys("boşluk" if h.isspace() else f"«{h}»" for h in gecersiz)
+        raise AnalizHatasi("Kelimede Çuvaşça olmayan karakter var: " + ", ".join(adlar) + ".")
     if not all(any(h in _UNLULER for h in k) for k in kelimeler):
         raise AnalizHatasi("Kelimede ünlü yok; geçerli bir Çuvaşça kök girin.")
     return kok
