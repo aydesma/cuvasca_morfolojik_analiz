@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 """Flask uygulaması: form akışı, hata gösterimi ve kaçış."""
 import json
+import re
 import unittest
 
 from app import app
@@ -31,7 +32,7 @@ class Uygulama(unittest.TestCase):
         self.assertIn("Analiz Sonucu", html)
         self.assertIn('value="3sg" selected', html)
         self.assertIn('value="dative" selected', html)
-        self.assertIn("Tüm Haller", html)
+        self.assertIn("Paradigma", html)
 
     def test_cogul_ve_iyelik_ve_hal(self):
         html = self.post(root="лаша", sahis="1sg", plural="on", hal="genitive")
@@ -43,15 +44,32 @@ class Uygulama(unittest.TestCase):
         self.assertIn('id="finalWord"', html)
         self.assertIn('value="" selected', html)
 
-    def test_tablo_kendi_kok_ve_iyeligini_tasir(self):
+    def test_tablo_kok_ve_hucre_bilgisini_tasir(self):
         html = self.post(root="Лаша", sahis="3sg", plural="", hal="dative")
-        self.assertIn('data-root="лаша" data-sahis="3sg"', html)
+        self.assertIn('id="paradigma" data-root="лаша"', html)
+        secili = re.findall(r'<button[^>]*aria-current="true"[^>]*>', html)
+        self.assertEqual(len(secili), 1)
+        self.assertIn('data-hal="dative" data-sahis="3sg" data-cogul="0"', secili[0])
+
+    def test_paradigma_yalin_satiri_iyeliksiz_sutunu_icerir(self):
+        # Esma'nın bildirdiği durum: ҫын + 3. tekil + yalın
+        html = self.post(root="Çын", sahis="3sg", plural="", hal="nominative")
+
+        def hucre(sahis):
+            m = re.search(r'data-hal="nominative" data-sahis="%s" data-cogul="0"[^>]*>(.*?)</button>' % sahis,
+                          html, re.S)
+            return re.sub(r"<[^>]+>|\s+", "", m.group(1))
+
+        self.assertEqual(hucre(""), "ҫын")
+        self.assertEqual(hucre("3sg"), "ҫынӗ")
+        self.assertRegex(html, r'Ø<span[^>]*>iyeliksiz</span>')
+        self.assertRegex(html, r'id="finalWord"[^>]*>\s*ҫынӗ\s*<')
 
     def test_tireli_bilesik_cekilir(self):
         html = self.post(root="Ача-Пӑча", sahis="3sg", plural="on", hal="dative")
         self.assertIn("Analiz Sonucu", html)
         self.assertIn("ача-пӑчисене", html)
-        self.assertIn('data-root="ача-пӑча" data-sahis="3sg"', html)
+        self.assertIn('id="paradigma" data-root="ача-пӑча"', html)
         self.assertNotIn('role="alert"', html)
 
     def test_alternatif_bicim_gosterilir(self):

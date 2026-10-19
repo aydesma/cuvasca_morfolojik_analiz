@@ -112,22 +112,73 @@ class EkZinciri(unittest.TestCase):
         self.assertEqual(analyze("ЛАША", "1sg")["son"], "лашам")
 
 
-class Tablo(unittest.TestCase):
-    def test_sekiz_hal_tekil_ve_cogul(self):
-        s = analyze("лаша", "1sg", True, "genitive")
-        self.assertEqual([r["hal"] for r in s["tablo"]], HAL_KODLARI)
-        gen = s["tablo"][1]
-        self.assertEqual(gen["tekil"], ["лашамӑн"])
-        self.assertEqual(gen["cogul"], ["лашамсенӗн"])
-        self.assertTrue(gen["secili_cogul"])
-        self.assertFalse(gen["secili_tekil"])
-        self.assertEqual(sum(r["secili_tekil"] + r["secili_cogul"] for r in s["tablo"]), 1)
+def hucre(sonuc, cogul, hal, sahis):
+    tablo = next(t for t in sonuc["tablo"] if t["cogul"] == cogul)
+    satir = next(r for r in tablo["satirlar"] if r["hal"] == hal)
+    return next(h for h in satir["hucreler"] if h["sahis"] == (sahis or ""))
 
-    def test_sayilamayan_isimde_cogul_sutunu_bos(self):
+
+def secililer(sonuc):
+    return [(t["cogul"], r["hal"], h["sahis"], h["bicimler"])
+            for t in sonuc["tablo"] for r in t["satirlar"] for h in r["hucreler"] if h["secili"]]
+
+
+class Tablo(unittest.TestCase):
+    """Paradigma: tekil ve çoğul için 8 hal × (Ø + 6 iyelik); seçimden bağımsız."""
+
+    def test_duzen(self):
+        s = analyze("лаша", "1sg", True, "genitive")
+        self.assertEqual([t["ad"] for t in s["tablo"]], ["Tekil", "Çoğul"])
+        for t in s["tablo"]:
+            self.assertEqual([r["hal"] for r in t["satirlar"]], HAL_KODLARI)
+            for r in t["satirlar"]:
+                self.assertEqual([h["sahis"] for h in r["hucreler"]], [""] + SAHIS_KODLARI[1:])
+        self.assertEqual(hucre(s, False, "genitive", "1sg")["bicimler"], ["лашамӑн"])
+        self.assertEqual(hucre(s, True, "genitive", "1sg")["bicimler"], ["лашамсенӗн"])
+        self.assertEqual(secililer(s), [(True, "genitive", "1sg", ["лашамсенӗн"])])
+
+    def test_iyelik_secimi_tabloyu_degistirmez(self):
+        # Esma'nın bildirdiği durum: ҫын + 3. tekil + yalın; yalın satırının Ø sütunu iyeliksiz kalmalı
+        s = analyze("Çын", "3sg", False, "nominative")
+        self.assertEqual(hucre(s, False, "nominative", None)["bicimler"], ["ҫын"])
+        self.assertEqual(hucre(s, False, "nominative", "3sg")["bicimler"], ["ҫынӗ"])
+        self.assertEqual(secililer(s), [(False, "nominative", "3sg", ["ҫынӗ"])])
+        iyeliksiz = analyze("ҫын")
+        self.assertEqual([[h["bicimler"] for r in t["satirlar"] for h in r["hucreler"]] for t in s["tablo"]],
+                         [[h["bicimler"] for r in t["satirlar"] for h in r["hucreler"]] for t in iyeliksiz["tablo"]])
+
+    def test_sayilamayan_isimde_cogul_tablosu_yok(self):
         s = analyze("сӗт", None, False, "genitive")
         self.assertFalse(s["sayilabilir"])
-        self.assertTrue(all(r["cogul"] is None for r in s["tablo"]))
+        self.assertEqual([t["ad"] for t in s["tablo"]], ["Tekil"])
         self.assertEqual(s["son"], "сӗтӗн")
+
+
+class SonucTabloTutarliligi(unittest.TestCase):
+    """Sonuç kutusu, ek zinciri ve tablo her kombinasyonda birbirini tutar."""
+
+    def test_secili_hucre_sonucla_ayni_ve_yalin_o_kok(self):
+        for kok in ORNEK_KOKLER + ["ача-пӑча", "кукка-атте"]:
+            for sahis in SAHIS_KODLARI:
+                for cogul in (False, True):
+                    for hal in HAL_KODLARI:
+                        with self.subTest(kok=kok, sahis=sahis, cogul=cogul, hal=hal):
+                            try:
+                                s = analyze(kok, sahis, cogul, hal)
+                            except AnalizHatasi:
+                                continue
+                            self.assertEqual(secililer(s), [(cogul, hal, sahis or "", [s["son"]] + s["digerleri"])])
+                            self.assertEqual(hucre(s, False, "nominative", None)["bicimler"], [s["kok"]])
+
+    def test_her_hucre_tiklaninca_kendi_bicimini_verir(self):
+        for kok in ("лаша", "ҫын", "атте", "тетрадь", "пальто", "сӗт", "ача-пӑча"):
+            s = analyze(kok)
+            for t in s["tablo"]:
+                for r in t["satirlar"]:
+                    for h in r["hucreler"]:
+                        with self.subTest(kok=kok, cogul=t["cogul"], hal=r["hal"], sahis=h["sahis"]):
+                            tik = analyze(s["kok"], h["sahis"] or None, t["cogul"], r["hal"])
+                            self.assertEqual([tik["son"]] + tik["digerleri"], h["bicimler"])
 
 
 class TireliBilesik(unittest.TestCase):
@@ -154,9 +205,10 @@ class TireliBilesik(unittest.TestCase):
                             self.assertEqual("".join(p["text"] for p in s["parcalar"]), s["son"])
                             self.assertEqual([p["label"] for p in s["parcalar"]],
                                              [p["label"] for p in tek["parcalar"]])
-                            for r, t in zip(s["tablo"], tek["tablo"]):
-                                self.assertEqual(r["tekil"], [on + b for b in t["tekil"]])
-                                self.assertEqual(r["cogul"], t["cogul"] and [on + b for b in t["cogul"]])
+                            self.assertEqual(
+                                [[h["bicimler"] for r in t["satirlar"] for h in r["hucreler"]] for t in s["tablo"]],
+                                [[[on + b for b in h["bicimler"]] for r in t["satirlar"] for h in r["hucreler"]]
+                                 for t in tek["tablo"]])
 
     def test_ornekler(self):
         self.assertEqual(zincir(analyze("ача-пӑча", "3sg", True, "dative")),

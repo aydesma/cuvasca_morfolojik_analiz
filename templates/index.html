@@ -272,38 +272,34 @@
                 </button>
             </div>
 
-            {% set ns = namespace(iyelik='iyeliksiz') %}
-            {% for kod, _, _, ad in sahislar %}{% if kod == selected_sahis %}{% set ns.iyelik = ad %}{% endif %}{% endfor %}
-            <div class="mt-8">
-                <div class="flex flex-wrap items-baseline justify-between gap-2 mb-3">
-                    <h3 class="text-lg font-semibold text-gray-800 dark:text-gray-200">Tüm Haller</h3>
-                    <span class="text-sm text-gray-500 dark:text-gray-400">{{ analiz.kok }} · {{ ns.iyelik }}</span>
+            <div id="paradigma" data-root="{{ analiz.kok }}" class="mt-8">
+                <div class="flex flex-wrap items-baseline justify-between gap-2 mb-1">
+                    <h3 class="text-lg font-semibold text-gray-800 dark:text-gray-200">Paradigma</h3>
+                    <span class="text-sm text-gray-500 dark:text-gray-400"><span class="font-semibold text-green-600 dark:text-green-400">{{ analiz.kok }}</span> kelimesinin tam çekim tablosu</span>
                 </div>
+                {% for tablo in analiz.tablo %}
+                <p class="mt-4 mb-2 text-xs font-bold uppercase tracking-wider text-green-600 dark:text-green-400">{{ tablo.ad }}</p>
                 <div class="overflow-x-auto rounded-xl border border-gray-200 dark:border-zinc-800">
                     <table class="min-w-full text-sm">
                         <thead class="bg-gray-50 dark:bg-zinc-900 text-gray-500 dark:text-gray-400">
                             <tr>
-                                <th scope="col" class="text-left font-semibold px-2 sm:px-3 py-2">Hal</th>
-                                <th scope="col" class="text-left font-semibold px-2 sm:px-3 py-2">Tekil</th>
-                                <th scope="col" class="text-left font-semibold px-2 sm:px-3 py-2">Çoğul</th>
+                                <th scope="col" class="sticky left-0 z-10 bg-gray-50 dark:bg-zinc-900 text-left font-semibold px-2 sm:px-3 py-2">Hal</th>
+                                {% for kod, etiket, aciklama in sutunlar %}
+                                <th scope="col" class="text-left font-semibold px-2 py-2 whitespace-nowrap align-bottom">{{ etiket }}<span class="block font-normal text-xs">{{ aciklama }}</span></th>
+                                {% endfor %}
                             </tr>
                         </thead>
-                        <tbody id="paradigma" data-root="{{ analiz.kok }}" data-sahis="{{ selected_sahis }}"
-                            class="divide-y divide-gray-100 dark:divide-zinc-800">
-                            {% for satir in analiz.tablo %}
+                        <tbody class="divide-y divide-gray-100 dark:divide-zinc-800">
+                            {% for satir in tablo.satirlar %}
                             <tr>
-                                <th scope="row" class="text-left font-medium text-gray-600 dark:text-gray-300 px-2 sm:px-3 py-2 align-top">{{ satir.ad }}</th>
-                                {% for cogul, bicimler, secili in [(False, satir.tekil, satir.secili_tekil), (True, satir.cogul, satir.secili_cogul)] %}
+                                <th scope="row" class="sticky left-0 z-10 bg-white dark:bg-darkcard text-left font-medium text-gray-600 dark:text-gray-300 px-2 sm:px-3 py-2 align-top">{{ satir.ad }}</th>
+                                {% for h in satir.hucreler %}
                                 <td class="p-0 align-top">
-                                    {% if bicimler %}
-                                    <button type="button" data-hal="{{ satir.hal }}" data-cogul="{{ '1' if cogul else '0' }}"
-                                        {% if secili %}aria-current="true"{% endif %}
-                                        class="w-full text-left px-2 sm:px-3 py-2 font-mono transition {{ 'bg-red-50 text-red-700 font-bold dark:bg-red-900/20 dark:text-red-300' if secili else 'text-gray-800 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-zinc-800' }}">
-                                        {%- for b in bicimler %}<span class="whitespace-nowrap">{{ b }}</span>{% if not loop.last %} / {% endif %}{% endfor -%}
+                                    <button type="button" data-hal="{{ satir.hal }}" data-sahis="{{ h.sahis }}" data-cogul="{{ '1' if tablo.cogul else '0' }}"
+                                        {% if h.secili %}aria-current="true"{% endif %}
+                                        class="w-full text-left px-2 py-2 font-mono transition {{ 'bg-red-50 text-red-700 font-bold dark:bg-red-900/20 dark:text-red-300' if h.secili else 'text-gray-800 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-zinc-800' }}">
+                                        {%- for b in h.bicimler %}<span class="whitespace-nowrap">{{ b }}</span>{% if not loop.last %} / {% endif %}{% endfor -%}
                                     </button>
-                                    {% else %}
-                                    <span class="block px-2 sm:px-3 py-2 text-gray-400 dark:text-gray-600" title="Sayılamayan isim">—</span>
-                                    {% endif %}
                                 </td>
                                 {% endfor %}
                             </tr>
@@ -311,8 +307,9 @@
                         </tbody>
                     </table>
                 </div>
+                {% endfor %}
                 {% if not analiz.sayilabilir %}
-                <p class="mt-2 text-xs text-gray-500 dark:text-gray-400">Sayılamayan isim: çoğul eki almaz.</p>
+                <p class="mt-2 text-xs text-gray-500 dark:text-gray-400">Sayılamayan isim: çoğul eki almaz, çoğul tablosu yok.</p>
                 {% endif %}
                 <p class="mt-2 text-xs text-gray-400 dark:text-gray-500">Bir biçime dokununca o çekim analiz edilir.</p>
             </div>
@@ -393,14 +390,14 @@
             }
         }
 
-        // Tablodaki bir biçime dokununca tablonun kökü ve iyeliğiyle o hal ve sayı gönderilir
+        // Tablodaki bir biçime dokununca tablonun kökü ile o hücrenin iyeliği, hali ve sayısı gönderilir
         const paradigma = document.getElementById('paradigma');
         if (paradigma) {
             paradigma.addEventListener('click', (event) => {
                 const cell = event.target.closest('button[data-hal]');
                 if (!cell) return;
                 rootInput.value = paradigma.dataset.root;
-                document.getElementById('sahisSelect').value = paradigma.dataset.sahis;
+                document.getElementById('sahisSelect').value = cell.dataset.sahis;
                 document.getElementById('halSelect').value = cell.dataset.hal;
                 const wantPlural = cell.dataset.cogul === '1';
                 if ((document.getElementById('pluralInput').value === 'on') !== wantPlural) togglePlural();

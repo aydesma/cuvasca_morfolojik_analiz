@@ -1,5 +1,5 @@
 from flask import Flask, render_template, request
-from morphology import analyze, AnalizHatasi, SAHISLAR, HALLER
+from morphology import analyze, AnalizHatasi, SAHISLAR, HALLER, SUTUNLAR
 import os
 
 app = Flask(__name__)
@@ -43,7 +43,8 @@ def index():
                          selected_plural=selected_plural,
                          selected_hal=selected_hal,
                          sahislar=SAHISLAR,
-                         haller=HALLER)
+                         haller=HALLER,
+                         sutunlar=SUTUNLAR)
 
 if __name__ == '__main__':
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 3000)), debug=True)

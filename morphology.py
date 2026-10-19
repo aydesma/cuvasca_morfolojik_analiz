@@ -39,6 +39,10 @@ HALLER = [
     ("causal", "Sebep"),
 ]
 
+# Paradigma sütunları (Türkmence sitesindeki gibi Ø + şahıslar): (form kodu, kısa etiket, açıklama)
+SUTUNLAR = [("", "Ø", "iyeliksiz")] + [(kod, etiket, ad[ad.index("(") + 1:-1])
+                                       for kod, _, etiket, ad in SAHISLAR]
+
 _SAHIS_MOTOR = {kod: motor for kod, motor, _, _ in SAHISLAR}
 _SAHIS_ETIKET = {kod: etiket for kod, _, etiket, _ in SAHISLAR}
 _HAL_ADI = dict(HALLER)
@@ -129,23 +133,34 @@ def _ayristir(kok, sahis, slot, cogul, hal, son):
     return parcalar
 
 
-def _tablo(kok, slot, hal, cogul, on=""):
+def _sayilabilir(kok):
     try:
-        _FST.generate_variants(kok, slot, True)
-        sayilabilir = True
+        _FST.generate_variants(kok, None, True)
+        return True
     except UncountableNounError:
-        sayilabilir = False
-    satirlar = []
-    for kod, ad in HALLER:
-        satirlar.append({
-            "hal": kod,
-            "ad": ad,
-            "tekil": [on + b for b in _FST.generate_variants(kok, slot, False, kod)],
-            "cogul": [on + b for b in _FST.generate_variants(kok, slot, True, kod)] if sayilabilir else None,
-            "secili_tekil": kod == hal and not cogul,
-            "secili_cogul": kod == hal and cogul,
-        })
-    return satirlar, sayilabilir
+        return False
+
+
+def _paradigma(kok, sahis, hal, cogul, on=""):
+    """
+    Tekil ve çoğul için 8 hal × (Ø + 6 iyelik) tablosu; seçimden bağımsızdır,
+    seçili biçim yalnız işaretlenir. Sayılamayan isimde çoğul tablosu yoktur.
+    """
+    tablolar = []
+    for sayi in ((False, True) if _sayilabilir(kok) else (False,)):
+        satirlar = []
+        for kod, ad in HALLER:
+            hucreler = []
+            for s, _, _ in SUTUNLAR:
+                slot = _SAHIS_MOTOR[s] if s else None
+                hucreler.append({
+                    "sahis": s,
+                    "bicimler": [on + b for b in _FST.generate_variants(kok, slot, sayi, kod)],
+                    "secili": s == (sahis or "") and sayi == cogul and kod == hal,
+                })
+            satirlar.append({"hal": kod, "ad": ad, "hucreler": hucreler})
+        tablolar.append({"cogul": sayi, "ad": "Çoğul" if sayi else "Tekil", "satirlar": satirlar})
+    return tablolar
 
 
 def analyze(root, person_code=None, is_plural=False, case="nominative"):
@@ -175,7 +190,7 @@ def analyze(root, person_code=None, is_plural=False, case="nominative"):
     kelime = kok.rsplit("-", 1)[-1]
     on = kok[:-len(kelime)]
 
-    tablo, sayilabilir = _tablo(kelime, slot, case, is_plural, on)
+    sayilabilir = _sayilabilir(kelime)
     if is_plural and not sayilabilir:
         raise AnalizHatasi(f"«{kok}» sayılamayan bir isim; çoğul eki almaz. "
                            "Çoğul seçimini kaldırıp yeniden deneyin.")
@@ -188,6 +203,6 @@ def analyze(root, person_code=None, is_plural=False, case="nominative"):
         "parcalar": parcalar,
         "son": on + bicimler[0],
         "digerleri": [on + b for b in bicimler[1:]],
-        "tablo": tablo,
+        "tablo": _paradigma(kelime, person_code, case, is_plural, on),
         "sayilabilir": sayilabilir,
     }
